@@ -1,0 +1,29 @@
+# Satellite composites and trained models - too large / not meant for git.
+# Deployed app fetches these from Google Drive at runtime instead (see
+# province_composite.py / turbidity_model.py). Local dev keeps them on disk.
+*.tif
+*.pkl
+!best_model_neural_network_mlp.pkl
+!scaler_ubon_operational.pkl
+!calibrator_neural_network_mlp.pkl
+
+# Historical analysis plots from earlier training iterations - not used by
+# the dashboard, just exploratory artifacts.
+Model_*.png
+Plot_*.png
+Prediction_*.png
+Validation_*.png
+Figure_*.png
+
+# Dead/unused cache (superseded by thailand_provinces.geojson etc.)
+ubon_water.json
+
+# Secrets - never commit. Real values live only in Streamlit Cloud's
+# secrets manager or your local ~/.config/earthengine/credentials.
+.streamlit/secrets.toml
+*.json.key
+service-account*.json
+
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sort -k5 -n)",
+      "WebFetch(domain:hyd-app-db.rid.go.th)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}
