@@ -26,6 +26,39 @@ VALIDATION_CSV = "Sentinel2_Extract_Ubon_New.csv"
 RID_GAUGES = rid.STATIONS_OF_INTEREST
 FOCUS_PROVINCE = "Ubon Ratchathani"
 
+# One representative tile (z=7, x=101, y=58 - covers Ubon Ratchathani) from
+# each provider, reused both as the live basemap and as the small preview
+# thumbnail in the sidebar picker.
+BASEMAPS = {
+    "Dark": {
+        "tiles": "CartoDB dark_matter", "attr": None,
+        "thumb": "https://a.basemaps.cartocdn.com/dark_all/7/101/58.png",
+        "desc": "Displays a map in dark theme",
+    },
+    "Light": {
+        "tiles": "CartoDB positron", "attr": None,
+        "thumb": "https://a.basemaps.cartocdn.com/light_all/7/101/58.png",
+        "desc": "Displays a map in light theme",
+    },
+    "Classic": {
+        "tiles": "OpenStreetMap", "attr": None,
+        "thumb": "https://a.tile.openstreetmap.org/7/101/58.png",
+        "desc": "Displays the default road map view",
+    },
+    "Terrain": {
+        "tiles": "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+        "attr": "Map data: OpenStreetMap contributors, SRTM | Map style: OpenTopoMap (CC-BY-SA)",
+        "thumb": "https://a.tile.opentopomap.org/7/101/58.png",
+        "desc": "Displays the terrain road map view",
+    },
+    "Satellite": {
+        "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        "attr": "Esri World Imagery",
+        "thumb": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/7/58/101",
+        "desc": "High-resolution aerial imagery (Esri World Imagery)",
+    },
+}
+
 st.markdown(
     """
     <style>
@@ -62,6 +95,9 @@ st.markdown(
     .risk-row:hover { background:#F4F6F9; }
     .risk-pill { display:inline-block; padding: 2px 10px; border-radius: 999px; font-weight:600;
         font-size: 0.78rem; color: #2b2b3a; }
+
+    .basemap-thumb { width:100%; border-radius:8px; aspect-ratio: 1.4; object-fit:cover; }
+    .basemap-desc { font-size:0.74rem; color:#8592A3; margin-top:-6px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -100,16 +136,11 @@ def turbidity_overlay_rgba(turbidity_map, water_mask):
     return rgba
 
 
-def true_color_rgba(rgb, valid_mask):
-    return np.dstack([rgb, valid_mask.astype(float)])
-
-
 def render_map_legend():
     rows = "".join(
         f'<div class="legend-item"><span class="legend-swatch" style="background:#9aa3ad;"></span>{label}</div>'
         for label in [
-            "Basemap (pick one)", "Province boundary (Ubon highlighted)", "District boundary",
-            "Major roads", "Satellite photo", "Turbidity", "Monitoring stations",
+            "Basemap", "Province boundary", "District boundary", "Turbidity", "Ground stations",
         ]
     )
     turbidity_rows = "".join(
@@ -175,6 +206,23 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
+    if "basemap" not in st.session_state:
+        st.session_state.basemap = "Light"
+
+    with st.expander("Base Map", expanded=False):
+        for name, cfg in BASEMAPS.items():
+            with st.container(border=True):
+                c_img, c_text = st.columns([1, 2])
+                with c_img:
+                    st.markdown(f'<img class="basemap-thumb" src="{cfg["thumb"]}">', unsafe_allow_html=True)
+                with c_text:
+                    is_selected = st.session_state.basemap == name
+                    if st.button(name, key=f"basemap_{name}", use_container_width=True,
+                                 type="primary" if is_selected else "secondary"):
+                        st.session_state.basemap = name
+                        st.rerun()
+                    st.markdown(f'<div class="basemap-desc">{cfg["desc"]}</div>', unsafe_allow_html=True)
+
 # --------------------------------------------------------------- top bar --
 if "legend_open" not in st.session_state:
     st.session_state.legend_open = True
@@ -221,12 +269,10 @@ with col_map:
         fmap = folium.Map(zoom_start=8, tiles=None)
         fmap.fit_bounds([[b_miny, b_minx], [b_maxy, b_maxx]])
 
-        # --- Switchable basemaps (radio group in the layer control) ---
-        folium.TileLayer("CartoDB positron", name="Light", control=True, show=True).add_to(fmap)
-        folium.TileLayer("OpenStreetMap", name="Streets", control=True, show=False).add_to(fmap)
+        # --- Basemap chosen via the sidebar's "Base Map" card picker ---
+        chosen = BASEMAPS[st.session_state.basemap]
         folium.TileLayer(
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri World Imagery", name="Satellite", control=True, show=False,
+            tiles=chosen["tiles"], attr=chosen["attr"], name=st.session_state.basemap, control=False,
         ).add_to(fmap)
 
         # --- All Thailand provinces, Ubon Ratchathani highlighted ---
@@ -261,23 +307,6 @@ with col_map:
         except FileNotFoundError:
             pass
 
-        # --- Major roads (off by default) ---
-        try:
-            road_lines = geo.load_roads()
-            roads_layer = folium.FeatureGroup(name="Roads", show=False)
-            for line in road_lines:
-                folium.PolyLine(line, color="#c9932e", weight=1.5, opacity=0.8).add_to(roads_layer)
-            roads_layer.add_to(fmap)
-        except FileNotFoundError:
-            pass
-
-        # --- Real Sentinel-2 composite, full province, water-masked (from GEE) ---
-        folium.raster_layers.ImageOverlay(
-            image=true_color_rgba(rgb, valid_mask),
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            opacity=1.0, name="Satellite photo", show=False,
-        ).add_to(fmap)
-
         overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
         folium.raster_layers.ImageOverlay(
             image=overlay_rgba,
@@ -285,7 +314,7 @@ with col_map:
             opacity=0.9, name="Turbidity", show=True,
         ).add_to(fmap)
 
-        station_layer = folium.FeatureGroup(name="Stations", show=True)
+        station_layer = folium.FeatureGroup(name="Ground Stations", show=True)
         for _, r in station_summary.iterrows():
             cls = style.classify(r["Predicted_NTU"])
             folium.CircleMarker(
