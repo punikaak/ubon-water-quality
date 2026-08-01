@@ -71,7 +71,8 @@ st.markdown(
 # ---------------------------------------------------------------- data ----
 @st.cache_data(show_spinner="Loading satellite composite...")
 def load_province_composite(path: str):
-    return pc.load_composite(path)
+    local_path = pc.ensure_local(path)
+    return pc.load_composite(local_path)
 
 
 @st.cache_data(show_spinner=False)

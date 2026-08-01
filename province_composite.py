@@ -1,8 +1,15 @@
 """Load full-province, water-masked Sentinel-2 composites exported by
-refresh_ubon_data.py / backfill_ubon_weekly.py (files named Ubon_S2_YYYYMMDD.tif
-in this folder, 8 bands already in turbidity_model.FEATURES order, computed
-server-side in GEE with the same NDWI/MNDWI/NDTI/NDSSI definitions the trained
-model expects - no local index recomputation needed).
+refresh_ubon_data.py / backfill_ubon_weekly.py (files named Ubon_S2_YYYYMMDD.tif,
+8 bands already in turbidity_model.FEATURES order, computed server-side in GEE
+with the same NDWI/MNDWI/NDTI/NDSSI definitions the trained model expects - no
+local index recomputation needed).
+
+Two sources, tried in order:
+  1. Local disk (fast path - what the Task Scheduler refresh writes to on the
+     dev machine).
+  2. Google Drive, via drive_client.py (what a cloud deployment uses, since it
+     has no persistent local disk of its own - see drive_client.py for why
+     Drive rather than Cloud Storage).
 """
 import datetime as dt
 import glob
@@ -15,10 +22,20 @@ import rasterio
 import turbidity_model as tm
 
 FILENAME_RE = re.compile(r"Ubon_S2_(\d{8})\.tif$")
+CACHE_DIR = ".composite_cache"
 
 
 def list_available_composites(folder="."):
-    """Returns [(date, path), ...] sorted by date, for every Ubon_S2_*.tif present."""
+    """Returns [(date, path), ...] sorted by date. Local files if any exist;
+    otherwise falls back to listing (not downloading) what's in Drive - see
+    ensure_local() to actually fetch one of those for use."""
+    out = _scan_local(folder)
+    if out:
+        return out
+    return _list_remote()
+
+
+def _scan_local(folder):
     out = []
     for path in glob.glob(os.path.join(folder, "Ubon_S2_*.tif")):
         m = FILENAME_RE.search(os.path.basename(path))
@@ -27,6 +44,33 @@ def list_available_composites(folder="."):
         d = dt.datetime.strptime(m.group(1), "%Y%m%d").date()
         out.append((d, path))
     return sorted(out, key=lambda t: t[0])
+
+
+def _list_remote():
+    import drive_client
+    out = []
+    for f in drive_client.list_remote_composites():
+        m = FILENAME_RE.search(f["name"])
+        if not m:
+            continue
+        d = dt.datetime.strptime(m.group(1), "%Y%m%d").date()
+        out.append((d, f"drive:{f['id']}:{f['name']}"))
+    return sorted(out, key=lambda t: t[0])
+
+
+def ensure_local(path: str) -> str:
+    """If `path` is a local file, return it as-is. If it's a "drive:<id>:<name>"
+    marker (from the Drive fallback above), download it to a local cache
+    directory (once) and return that local path."""
+    if not path.startswith("drive:"):
+        return path
+    _, file_id, filename = path.split(":", 2)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cached = os.path.join(CACHE_DIR, filename)
+    if os.path.exists(cached):
+        return cached
+    import drive_client
+    return drive_client.download_file(file_id, filename, CACHE_DIR)
 
 
 def load_composite(path, max_dim=1400, strip_rows=500):

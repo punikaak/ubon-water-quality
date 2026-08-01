@@ -18,6 +18,9 @@ Figure_*.png
 # Dead/unused cache (superseded by thailand_provinces.geojson etc.)
 ubon_water.json
 
+# Runtime cache for composites downloaded from Drive by the deployed app.
+.composite_cache/
+
 # Secrets - never commit. Real values live only in Streamlit Cloud's
 # secrets manager or your local ~/.config/earthengine/credentials.
 .streamlit/secrets.toml
