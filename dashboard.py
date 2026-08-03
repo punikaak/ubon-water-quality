@@ -26,78 +26,81 @@ VALIDATION_CSV = "Sentinel2_Extract_Ubon_New.csv"
 RID_GAUGES = rid.STATIONS_OF_INTEREST
 FOCUS_PROVINCE = "Ubon Ratchathani"
 
-# One representative tile (z=7, x=101, y=58 - covers Ubon Ratchathani) from
-# each provider, reused both as the live basemap and as the small preview
-# thumbnail in the sidebar picker.
+# Switchable basemaps - rendered as Leaflet's own base-layer radio group
+# (bottom-right of the map, see folium.LayerControl below), not a Streamlit
+# widget, so there's no page rerun on switch.
 BASEMAPS = {
-    "Dark": {
-        "tiles": "CartoDB dark_matter", "attr": None,
-        "thumb": "https://a.basemaps.cartocdn.com/dark_all/7/101/58.png",
-        "desc": "Displays a map in dark theme",
-    },
-    "Light": {
-        "tiles": "CartoDB positron", "attr": None,
-        "thumb": "https://a.basemaps.cartocdn.com/light_all/7/101/58.png",
-        "desc": "Displays a map in light theme",
-    },
-    "Classic": {
-        "tiles": "OpenStreetMap", "attr": None,
-        "thumb": "https://a.tile.openstreetmap.org/7/101/58.png",
-        "desc": "Displays the default road map view",
-    },
+    "Light": {"tiles": "CartoDB positron", "attr": None},
+    "Dark": {"tiles": "CartoDB dark_matter", "attr": None},
+    "Classic": {"tiles": "OpenStreetMap", "attr": None},
     "Terrain": {
         "tiles": "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
         "attr": "Map data: OpenStreetMap contributors, SRTM | Map style: OpenTopoMap (CC-BY-SA)",
-        "thumb": "https://a.tile.opentopomap.org/7/101/58.png",
-        "desc": "Displays the terrain road map view",
     },
     "Satellite": {
         "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         "attr": "Esri World Imagery",
-        "thumb": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/7/58/101",
-        "desc": "High-resolution aerial imagery (Esri World Imagery)",
     },
 }
 
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+_PALETTE = {
+    False: dict(  # light
+        app_bg="#ffffff", sidebar_bg="#fafbfc", text="#2b2b3a", muted="#6b7684",
+        card_bg="#ffffff", border="#e7eaf0", hero_grad="linear-gradient(100deg,#b7d6e6,#cfe3d8 55%,#eef0c8)",
+        hero_text="#1e3a4a",
+    ),
+    True: dict(  # dark
+        app_bg="#0e1117", sidebar_bg="#161b22", text="#e6e8eb", muted="#9aa3ad",
+        card_bg="#1b212b", border="#2a323c", hero_grad="linear-gradient(100deg,#16323d,#1c3a2c 55%,#3a3418)",
+        hero_text="#eaf2f5",
+    ),
+}
+P = _PALETTE[st.session_state.dark_mode]
+
 st.markdown(
-    """
+    f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-    html, body, [class*="css"]  { font-family: 'Poppins', sans-serif; }
-    #MainMenu, footer {visibility: hidden;}
-    header [data-testid="stToolbarActions"] {visibility: hidden;}
-    .block-container { padding: 0 0.6rem 0.4rem 0.6rem; max-width: 100%; }
-    iframe[title="streamlit_folium.st_folium"] { height: calc(100vh - 84px) !important; min-height: 560px; }
+    html, body, [class*="css"]  {{ font-family: 'Poppins', sans-serif; }}
+    #MainMenu, footer {{visibility: hidden;}}
+    header [data-testid="stToolbarActions"] {{visibility: hidden;}}
+    .block-container {{ padding: 0 0.6rem 0.4rem 0.6rem; max-width: 100%; }}
+    iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh - 118px) !important; min-height: 520px; }}
 
-    .topbar { display:flex; align-items:baseline; justify-content:space-between;
-        padding: 8px 6px; border-bottom: 2px solid #e7eaf0; margin-bottom: 6px; }
-    .topbar-title { font-size: 1.25rem; font-weight: 700; color: #1e3a4a; }
-    .topbar-sub { font-size: 0.8rem; color: #6b7684; margin-left: 10px; }
+    .stApp {{ background: {P['app_bg']}; }}
+    header[data-testid="stHeader"] {{ background: {P['app_bg']}; }}
+    [data-testid="stSidebar"] {{ background: {P['sidebar_bg']}; }}
+    .stApp, .stApp p, .stApp span, .stApp label, .stMarkdown {{ color: {P['text']}; }}
 
-    .card { border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-        margin-bottom: 14px; overflow:hidden; background: var(--background-color, #fff); }
-    .card-body { padding: 12px 14px; }
-    .card-head { padding: 8px 14px; font-weight:700; font-size:1.02rem; }
-    .head-teal { background: linear-gradient(90deg,#7be8c4,#3ed99b); color:#0d4a35; }
+    .hero {{ background: {P['hero_grad']}; border-radius: 0 0 10px 10px; padding: 18px 24px;
+        margin: 0 0 10px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.10); }}
+    .hero-title {{ font-size: 1.6rem; font-weight: 700; color: {P['hero_text']}; }}
+    .hero-sub {{ font-size: 0.82rem; color: {P['hero_text']}; opacity: 0.75; margin-top: 2px; }}
 
-    .legend-item { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:0.86rem; color:#2b2b3a; }
-    .legend-swatch { width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }
-    .legend-heading { font-weight:700; font-size:0.82rem; text-transform:uppercase; letter-spacing:.03em;
-        color:#5a6474; margin: 10px 0 4px 0; }
-    .legend-caption { font-size:0.76rem; color:#8592A3; margin-top:6px; }
+    .card {{ border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+        margin-bottom: 14px; overflow:hidden; background: {P['card_bg']}; border: 1px solid {P['border']}; }}
+    .card-body {{ padding: 12px 14px; }}
+    .card-head {{ padding: 8px 14px; font-weight:700; font-size:1.02rem; }}
+    .head-teal {{ background: linear-gradient(90deg,#7be8c4,#3ed99b); color:#0d4a35; }}
 
-    .sb-metric { border:1px solid #E7EAF0; border-radius:12px; padding:10px 12px; margin-bottom:10px; }
-    .sb-value { font-size:1.5rem; font-weight:700; }
-    .sb-label { font-size:0.72rem; color:#8592A3; text-transform:uppercase; letter-spacing:.04em; }
+    .legend-item {{ display:flex; align-items:center; gap:8px; padding:4px 0; font-size:0.86rem; color:{P['text']}; }}
+    .legend-swatch {{ width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }}
+    .legend-heading {{ font-weight:700; font-size:0.82rem; text-transform:uppercase; letter-spacing:.03em;
+        color:{P['muted']}; margin: 10px 0 4px 0; }}
+    .legend-caption {{ font-size:0.76rem; color:{P['muted']}; margin-top:6px; }}
 
-    .risk-row { display:flex; justify-content:space-between; align-items:center;
-        padding: 7px 10px; border-radius: 10px; margin-bottom:4px; }
-    .risk-row:hover { background:#F4F6F9; }
-    .risk-pill { display:inline-block; padding: 2px 10px; border-radius: 999px; font-weight:600;
-        font-size: 0.78rem; color: #2b2b3a; }
+    .sb-metric {{ border:1px solid {P['border']}; border-radius:12px; padding:10px 12px; margin-bottom:10px; }}
+    .sb-value {{ font-size:1.5rem; font-weight:700; color:{P['text']}; }}
+    .sb-label {{ font-size:0.72rem; color:{P['muted']}; text-transform:uppercase; letter-spacing:.04em; }}
 
-    .basemap-thumb { width:100%; border-radius:8px; aspect-ratio: 1.4; object-fit:cover; }
-    .basemap-desc { font-size:0.74rem; color:#8592A3; margin-top:-6px; }
+    .risk-row {{ display:flex; justify-content:space-between; align-items:center;
+        padding: 7px 10px; border-radius: 10px; margin-bottom:4px; color:{P['text']}; }}
+    .risk-row:hover {{ background: {P['sidebar_bg']}; }}
+    .risk-pill {{ display:inline-block; padding: 2px 10px; border-radius: 999px; font-weight:600;
+        font-size: 0.78rem; color: #2b2b3a; }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -168,7 +171,6 @@ latest_row = df_val.sort_values("Date").iloc[-1]
 
 # ------------------------------------------------------------- sidebar ----
 with st.sidebar:
-    st.markdown("### Mekong Water Quality")
     st.caption("Situation overview - Ubon Ratchathani")
 
     st.markdown("#### Latest Turbidity")
@@ -206,35 +208,22 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    if "basemap" not in st.session_state:
-        st.session_state.basemap = "Light"
-
-    with st.expander("Base Map", expanded=False):
-        for name, cfg in BASEMAPS.items():
-            with st.container(border=True):
-                c_img, c_text = st.columns([1, 2])
-                with c_img:
-                    st.markdown(f'<img class="basemap-thumb" src="{cfg["thumb"]}">', unsafe_allow_html=True)
-                with c_text:
-                    is_selected = st.session_state.basemap == name
-                    if st.button(name, key=f"basemap_{name}", use_container_width=True,
-                                 type="primary" if is_selected else "secondary"):
-                        st.session_state.basemap = name
-                        st.rerun()
-                    st.markdown(f'<div class="basemap-desc">{cfg["desc"]}</div>', unsafe_allow_html=True)
-
 # --------------------------------------------------------------- top bar --
 if "legend_open" not in st.session_state:
     st.session_state.legend_open = True
 
-top_l, top_r = st.columns([6, 1])
-with top_l:
-    st.markdown(
-        '<div class="topbar"><span class="topbar-title">Mekong Water Quality</span>'
-        '<span class="topbar-sub">Satellite-derived turbidity monitoring - Ubon Ratchathani, Thailand</span></div>',
-        unsafe_allow_html=True,
-    )
-with top_r:
+st.markdown(
+    '<div class="hero"><div class="hero-title">Mekong Water Quality - Thailand</div>'
+    '<div class="hero-sub">Satellite-derived turbidity monitoring - Ubon Ratchathani</div></div>',
+    unsafe_allow_html=True,
+)
+
+top_l, top_r1, top_r2 = st.columns([6, 1, 1])
+with top_r1:
+    if st.button("Dark mode" if not st.session_state.dark_mode else "Light mode"):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+with top_r2:
     if st.button("Hide legend" if st.session_state.legend_open else "Show legend"):
         st.session_state.legend_open = not st.session_state.legend_open
         st.rerun()
@@ -268,12 +257,37 @@ with col_map:
 
         fmap = folium.Map(zoom_start=8, tiles=None)
         fmap.fit_bounds([[b_miny, b_minx], [b_maxy, b_maxx]])
+        fmap.get_root().header.add_child(folium.Element(
+            """
+            <style>
+            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+            .leaflet-control-layers, .leaflet-control-layers-list, .leaflet-control-attribution,
+            .leaflet-popup-content, .leaflet-tooltip {
+                font-family: 'Poppins', sans-serif !important;
+            }
+            .leaflet-control-layers {
+                border-radius: 10px !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
+                border: none !important;
+                padding: 10px 14px !important;
+            }
+            .leaflet-control-layers-base label, .leaflet-control-layers-overlays label {
+                font-size: 0.85rem !important;
+                padding: 3px 0 !important;
+            }
+            .leaflet-control-layers-separator { margin: 8px 0 !important; }
+            .leaflet-control-layers-toggle {
+                width: 32px !important; height: 32px !important; border-radius: 8px !important;
+            }
+            </style>
+            """
+        ))
 
-        # --- Basemap chosen via the sidebar's "Base Map" card picker ---
-        chosen = BASEMAPS[st.session_state.basemap]
-        folium.TileLayer(
-            tiles=chosen["tiles"], attr=chosen["attr"], name=st.session_state.basemap, control=False,
-        ).add_to(fmap)
+        # --- Switchable basemaps: Leaflet's own radio-button base-layer group ---
+        for name, cfg in BASEMAPS.items():
+            folium.TileLayer(
+                tiles=cfg["tiles"], attr=cfg["attr"], name=name, control=True, show=(name == "Light"),
+            ).add_to(fmap)
 
         # --- All Thailand provinces, Ubon Ratchathani highlighted ---
         try:
@@ -330,7 +344,7 @@ with col_map:
             ).add_to(station_layer)
         station_layer.add_to(fmap)
 
-        folium.LayerControl(collapsed=True).add_to(fmap)
+        folium.LayerControl(position="bottomright", collapsed=True).add_to(fmap)
         st_folium(fmap, use_container_width=True, height=750, returned_objects=[])
 
 if col_right is not None:
