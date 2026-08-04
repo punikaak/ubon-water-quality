@@ -1,10 +1,11 @@
 # Dependencies for the deployed dashboard (dashboard.py and its imports:
-# geo_boundary, province_composite, rid_streamflow, turbidity_model,
+# geo_boundary, map_controls, province_composite, turbidity_model,
 # turbidity_style). Loose lower-bound pins rather than exact versions since
 # Streamlit Community Cloud's Python runtime may differ from local dev.
 streamlit>=1.40
 streamlit-folium>=0.24
 folium>=0.19
+altair>=5.0
 pandas>=2.2
 numpy>=1.26
 matplotlib>=3.8

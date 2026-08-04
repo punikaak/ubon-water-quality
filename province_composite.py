@@ -147,3 +147,24 @@ def load_composite(path, max_dim=1400, strip_rows=500):
 
     rgb = np.dstack([stretch(rgb_raw[..., 0]), stretch(rgb_raw[..., 1]), stretch(rgb_raw[..., 2])])
     return rgb, turbidity_map.astype(np.float32), mask_down, bounds
+
+
+def sample_at(turbidity_map, valid_mask, bounds, lat, lon, search_radius=5):
+    """Turbidity at (lat, lon) for this composite, or None if no valid (water)
+    pixel exists within `search_radius` pixels of that point - stations sit
+    right at the water's edge, and the downsampled/simplified mask sometimes
+    misses them by a pixel or two.
+    """
+    h, w = turbidity_map.shape
+    col = int((lon - bounds.left) / (bounds.right - bounds.left) * w)
+    row = int((bounds.top - lat) / (bounds.top - bounds.bottom) * h)
+    if not (0 <= row < h and 0 <= col < w):
+        return None
+    for r in range(search_radius + 1):
+        r0, r1 = max(0, row - r), min(h, row + r + 1)
+        c0, c1 = max(0, col - r), min(w, col + r + 1)
+        window_mask = valid_mask[r0:r1, c0:c1]
+        if window_mask.any():
+            window_vals = turbidity_map[r0:r1, c0:c1]
+            return float(window_vals[window_mask].mean()) if r > 0 else float(turbidity_map[row, col])
+    return None

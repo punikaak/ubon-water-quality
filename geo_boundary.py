@@ -17,13 +17,17 @@ as-is (delete the file to force a re-fetch).
 import functools
 import json
 import os
+import time
 
 import requests
 from shapely.geometry import shape
 
 BOUNDARY_CACHE = "ubon_boundary.geojson"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 QUERY = "Ubon Ratchathani Province, Thailand"
+
+STATION_LOCATIONS_CACHE = "station_locations.json"
 
 THAILAND_PROVINCES_CACHE = "thailand_provinces.geojson"
 UBON_DISTRICTS_CACHE = "ubon_districts.geojson"
@@ -66,6 +70,50 @@ def boundary_rings_latlon(poly):
     rings = [list(poly.exterior.coords)]
     rings += [list(ring.coords) for ring in poly.interiors]
     return [[(lat, lon) for lon, lat in ring] for ring in rings]
+
+
+def station_locations(stations, lang="en"):
+    """{code: "Tambon, Amphoe, Province"} in the requested language ("en" or
+    "th") for each (code, lat, lon) in `stations`, via Nominatim reverse
+    geocoding (no local data source has sub-district detail for these
+    stations). Cached to disk as {code: {"en": ..., "th": ...}} - both
+    languages are fetched together the first time a code is seen, so the
+    TH/EN toggle never needs a fresh network call after that. Only hits the
+    network for codes not already in the cache file, respecting Nominatim's
+    1 req/sec policy on those.
+    """
+    cache = {}
+    if os.path.exists(STATION_LOCATIONS_CACHE):
+        with open(STATION_LOCATIONS_CACHE, encoding="utf-8") as f:
+            cache = json.load(f)
+
+    missing = [(code, lat, lon) for code, lat, lon in stations if code not in cache]
+    if missing:
+        headers = {"User-Agent": "MekongWaterQualityDashboard/1.0 (research project)"}
+        request_count = 0
+        for code, lat, lon in missing:
+            entry = {}
+            for lc in ("en", "th"):
+                if request_count:
+                    time.sleep(1)
+                request_count += 1
+                resp = requests.get(
+                    NOMINATIM_REVERSE_URL,
+                    params={"lat": lat, "lon": lon, "format": "jsonv2", "zoom": 15, "addressdetails": 1,
+                            "accept-language": lc},
+                    headers=headers, timeout=20,
+                )
+                resp.raise_for_status()
+                addr = resp.json().get("address", {})
+                tambon = addr.get("suburb") or addr.get("village") or addr.get("hamlet") or addr.get("town") or ""
+                amphoe = addr.get("county") or addr.get("state_district") or ""
+                province = addr.get("province") or addr.get("state") or ""
+                entry[lc] = ", ".join(p for p in (tambon, amphoe, province) if p)
+            cache[code] = entry
+        with open(STATION_LOCATIONS_CACHE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+
+    return {code: cache.get(code, {}).get(lang, "") for code, _, _ in stations}
 
 
 def _require_cache(path, fetch_fn, label):

@@ -61,6 +61,28 @@ The existing Windows Task Scheduler job (`MekongWaterQuality_WeeklyRefresh`)
 still works as a local backup/dev-time refresh - the two don't conflict,
 both just add composites to the same Drive folder.
 
+### 4. After new composites land, refresh the history cache
+
+```bash
+python precompute_history.py   # rewrites ubon_history.json, then commit it
+```
+
+`ubon_history.json` holds the sidebar's province and per-station trend
+values, one float per composite date. Without it the deployed app has to
+open every composite in range to draw those two charts - each one a ~28MB
+Drive download plus ~12s of inference, so a cold visit would sit blank for
+minutes. Skipping this step is not fatal: any date missing from the file is
+still computed live, it just costs what it used to for that date.
+
+## Cold starts
+
+Streamlit Community Cloud sleeps an idle app, so the first visit after a
+quiet spell pays full startup cost. What that covers: one composite
+download + inference, the RID streamflow API call, and the Leaflet map
+build. Measured ~34s locally with the composite already on disk; expect
+longer on the first cloud load while the composite comes down from Drive.
+Subsequent visits hit Streamlit's cache and are immediate.
+
 ## Why Google Drive instead of Cloud Storage
 
 The original plan used Google Cloud Storage, but bucket creation failed:
@@ -80,4 +102,5 @@ billing requirement, so that's the storage backend for now
 - `drive_client.py` - shared Google Drive access (dashboard read path)
 - `rid_streamflow.py` - RID streamflow API (best-effort; see module docstring for its limitations)
 - `refresh_ubon_data.py` / `backfill_ubon_weekly.py` - GEE export + Drive upload/download scripts
+- `precompute_history.py` - writes `ubon_history.json`, the sidebar trend cache (see step 4)
 - `requirements.txt` - deployed-app dependencies; `requirements-dev.txt` adds what the refresh scripts need

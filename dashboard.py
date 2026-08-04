@@ -1,12 +1,23 @@
 """Mekong Water Quality - satellite-derived turbidity monitoring, Ubon Ratchathani.
 
-Sentinel-2 -> MLP (calibrated) turbidity map, RID streamflow context, and a
-high-risk station ranking. The Leaflet map fills the full viewport. Left
-panel is Streamlit's native (foldable) sidebar. Right panel (legend) folds
-via a toggle button since Streamlit has no native right sidebar.
+Sentinel-2 -> MLP (calibrated) turbidity map, rendered full-bleed with a
+fold-out control rail (legend, layer toggles, basemap picker) styled after
+ADPC's Air4Laos dashboard.
+
+The left sidebar is a fixed situation overview: latest province-wide
+turbidity, a per-station turbidity trend, daily Mun River water level from
+the RID gauges, districts ranked by turbidity with a risk class, and the
+station list. The headline figure, district ranking and map markers all
+follow whichever composite date is selected on the map's timeline; the two
+trend charts always cover the full analysis window (RANGE_START..RANGE_END).
 
 Run with:  streamlit run dashboard.py
 """
+import base64
+import datetime as dt
+import json
+
+import altair as alt
 import folium
 import matplotlib.colors as mcolors
 import numpy as np
@@ -15,6 +26,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 import geo_boundary as geo
+import map_controls
 import province_composite as pc
 import rid_streamflow as rid
 import turbidity_model as tm
@@ -23,12 +35,26 @@ import turbidity_style as style
 st.set_page_config(page_title="Mekong Water Quality", layout="wide")
 
 VALIDATION_CSV = "Sentinel2_Extract_Ubon_New.csv"
-RID_GAUGES = rid.STATIONS_OF_INTEREST
+HISTORY_CACHE = "ubon_history.json"  # written by precompute_history.py
 FOCUS_PROVINCE = "Ubon Ratchathani"
 
-# Switchable basemaps - rendered as Leaflet's own base-layer radio group
-# (bottom-right of the map, see folium.LayerControl below), not a Streamlit
-# widget, so there's no page rerun on switch.
+# This dashboard's original analysis window - composites outside this range
+# (e.g. from the ongoing weekly refresh automation) are excluded so the
+# timeline only ever shows the period this deployment was built to cover.
+RANGE_START = dt.date(2024, 11, 1)
+RANGE_END = dt.date(2024, 12, 31)
+
+# Actual on-map symbol colors, reused so the legend and the layer-toggle
+# panel never drift out of sync with what's really drawn on the map.
+PROVINCE_LINE_COLOR = "#9aa3ad"
+PROVINCE_FOCUS_COLOR = "#e05a2b"
+DISTRICT_LINE_COLOR = "#6b7684"
+STATION_STROKE_COLOR = "#2b2b3a"
+HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
+
+# Switchable basemaps, presented via the custom fold-out rail in
+# map_controls.py (styled after air4laos.adpc.net), not Leaflet's default
+# LayerControl widget.
 BASEMAPS = {
     "Light": {"tiles": "CartoDB positron", "attr": None},
     "Dark": {"tiles": "CartoDB dark_matter", "attr": None},
@@ -42,65 +68,410 @@ BASEMAPS = {
         "attr": "Esri World Imagery",
     },
 }
+DEFAULT_BASEMAP = "Light"
 
-if "dark_mode" not in st.session_state:
-    st.session_state.dark_mode = False
+# Chart series colors - the first slots of the dataviz skill's validated
+# categorical order (blue, orange, aqua), taken in that fixed order rather
+# than picked by eye, so adjacent series stay separable under colour-vision
+# deficiency.
+COLOR_PREDICTED = "#2a78d6"
+COLOR_ACTUAL = "#eb6834"
+GAUGE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
 
-_PALETTE = {
-    False: dict(  # light
-        app_bg="#ffffff", sidebar_bg="#fafbfc", text="#2b2b3a", muted="#6b7684",
-        card_bg="#ffffff", border="#e7eaf0", hero_grad="linear-gradient(100deg,#b7d6e6,#cfe3d8 55%,#eef0c8)",
-        hero_text="#1e3a4a",
-    ),
-    True: dict(  # dark
-        app_bg="#0e1117", sidebar_bg="#161b22", text="#e6e8eb", muted="#9aa3ad",
-        card_bg="#1b212b", border="#2a323c", hero_grad="linear-gradient(100deg,#16323d,#1c3a2c 55%,#3a3418)",
-        hero_text="#eaf2f5",
-    ),
+P = dict(
+    app_bg="#ffffff", sidebar_bg="#fafbfc", text="#2b2b3a", muted="#6b7684",
+    border="#e7eaf0",
+)
+
+# ------------------------------------------------------------ translations --
+TRANSLATIONS = {
+    "en": {
+        "page_title": "Mekong Water Quality - Thailand",
+        "page_subtitle": "Satellite-derived turbidity monitoring - Ubon Ratchathani",
+        "situation_overview": "Situation overview - Ubon Ratchathani",
+        "latest_turbidity": "Latest Turbidity",
+        "stations_heading": "Stations",
+        "station_select": "Station",
+        "no_coverage": "No composite coverage at this station's location.",
+        "legend_layers": "Layers",
+        "legend_turbidity_levels": "Turbidity Levels",
+        "legend_province": "Province boundary",
+        "legend_district": "District boundary",
+        "legend_pcd_stations": "PCD stations",
+        "legend_caption": "General reference scale for this dashboard, not an official Thai PCD standard.",
+        "legend_label": "Legend",
+        "pcd_stations_label": "PCD Stations",
+        "province_label": "Province",
+        "district_label": "District",
+        "turbidity_label": "Turbidity",
+        "basemap_label": "Base Map",
+        "pcd_dept": "PCD - Thailand Pollution Control Department",
+        "predicted_satellite": "Predicted (satellite)",
+        "actual_pcd": "Actual (PCD)",
+        "measured_pcd_avg": "Measured (PCD avg)",
+        "class_label": "Class",
+        "turbidity_trend": "Turbidity Trend",
+        "province_average": "Province-wide average",
+        "vs_previous": "vs previous week",
+        "no_change": "no change",
+        "streamflow_heading": "Streamflow / Discharge",
+        "discharge": "Discharge",
+        "water_level": "Water level",
+        "streamflow_unavailable": "Streamflow gauge service unavailable right now.",
+        "streamflow_note": (
+            "Daily stage from the RID Lower-NE gauges on the Mun River. The service returns "
+            "no discharge (m^3/s) figure for these gauges, so water level is shown - it is "
+            "the quantity actually measured."
+        ),
+        "level_m": "Level (m)",
+        "gauge": "Gauge",
+        "district_ranking": "District Ranking",
+        "district_ranking_note": "Mean turbidity of water pixels within each district, highest first.",
+        "no_districts": "District boundaries not available.",
+        "risk": "Risk",
+        "window_label": "01 Nov - 31 Dec 2024",
+    },
+    "th": {
+        "page_title": "คุณภาพน้ำแม่น้ำโขง - ประเทศไทย",
+        "page_subtitle": "ติดตามความขุ่นของน้ำด้วยดาวเทียม - จังหวัดอุบลราชธานี",
+        "situation_overview": "ภาพรวมสถานการณ์ - จังหวัดอุบลราชธานี",
+        "latest_turbidity": "ความขุ่นล่าสุด",
+        "stations_heading": "สถานีตรวจวัด",
+        "station_select": "สถานี",
+        "no_coverage": "ไม่มีข้อมูลดาวเทียมครอบคลุมตำแหน่งสถานีนี้",
+        "legend_layers": "ชั้นข้อมูล",
+        "legend_turbidity_levels": "ระดับความขุ่น",
+        "legend_province": "ขอบเขตจังหวัด",
+        "legend_district": "ขอบเขตอำเภอ",
+        "legend_pcd_stations": "สถานี คพ.",
+        "legend_caption": "ค่าอ้างอิงทั่วไปสำหรับแดชบอร์ดนี้ ไม่ใช่มาตรฐานทางการของกรมควบคุมมลพิษ",
+        "legend_label": "คำอธิบาย",
+        "pcd_stations_label": "สถานี คพ.",
+        "province_label": "จังหวัด",
+        "district_label": "อำเภอ",
+        "turbidity_label": "ความขุ่น",
+        "basemap_label": "แผนที่ฐาน",
+        "pcd_dept": "คพ. - กรมควบคุมมลพิษ",
+        "predicted_satellite": "พยากรณ์ (ดาวเทียม)",
+        "actual_pcd": "ค่าจริง (คพ.)",
+        "measured_pcd_avg": "ค่าวัดจริง (เฉลี่ย คพ.)",
+        "class_label": "ระดับ",
+        "turbidity_trend": "แนวโน้มความขุ่น",
+        "province_average": "ค่าเฉลี่ยทั้งจังหวัด",
+        "vs_previous": "เทียบกับสัปดาห์ก่อน",
+        "no_change": "ไม่เปลี่ยนแปลง",
+        "streamflow_heading": "ปริมาณน้ำท่า / อัตราการไหล",
+        "discharge": "อัตราการไหล",
+        "water_level": "ระดับน้ำ",
+        "streamflow_unavailable": "ไม่สามารถเชื่อมต่อระบบสถานีวัดน้ำได้ในขณะนี้",
+        "streamflow_note": (
+            "ระดับน้ำรายวันจากสถานีวัดน้ำแม่น้ำมูล กรมชลประทาน (สำนักงานอุทกวิทยาภาคตะวันออกเฉียงเหนือตอนล่าง) "
+            "ระบบไม่ได้ส่งค่าอัตราการไหล (ลบ.ม./วินาที) สำหรับสถานีเหล่านี้ จึงแสดงเป็นระดับน้ำซึ่งเป็นค่าที่วัดได้จริง"
+        ),
+        "level_m": "ระดับน้ำ (ม.)",
+        "gauge": "สถานีวัดน้ำ",
+        "district_ranking": "อันดับความขุ่นรายอำเภอ",
+        "district_ranking_note": "ค่าเฉลี่ยความขุ่นของพื้นที่น้ำในแต่ละอำเภอ เรียงจากมากไปน้อย",
+        "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
+        "risk": "ความเสี่ยง",
+        "window_label": "1 พ.ย. - 31 ธ.ค. 2567",
+    },
 }
-P = _PALETTE[st.session_state.dark_mode]
+
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"
+LANG = st.session_state.lang
+T = TRANSLATIONS[LANG]
+
+
+def scale_icon_data_uri():
+    """A segmented turbidity-scale bar, as a base64 data URI for CSS.
+
+    Used as the face of the sidebar open/close control instead of
+    Streamlit's default chevron, so the control reads as "the water quality
+    panel". Built from style.CLASSES rather than hard-coded swatches so it
+    cannot drift out of sync with the legend. Base64 (not raw SVG in the
+    url()) purely to sidestep escaping - the markup contains both '#' and
+    quotes, which are awkward inside a CSS url() nested in an f-string.
+    """
+    seg = 18 / len(style.CLASSES)
+    bars = "".join(
+        f'<rect x="{3 + i * seg:.3f}" y="9" width="{seg:.3f}" height="6" fill="{c["color"]}"/>'
+        for i, c in enumerate(style.CLASSES)
+    )
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        '<defs><clipPath id="wqr"><rect x="3" y="9" width="18" height="6" rx="3"/></clipPath></defs>'
+        f'<g clip-path="url(#wqr)">{bars}</g>'
+        '<rect x="3" y="9" width="18" height="6" rx="3" fill="none" '
+        'stroke="#2b2b3a" stroke-width="0.9" stroke-opacity="0.55"/>'
+        "</svg>"
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+SIDEBAR_ICON = scale_icon_data_uri()
+
+
+def arrow_icon_data_uri(direction: str, color: str = HEADER_NAVY):
+    """Outline prev/next triangle as a base64 data URI for CSS.
+
+    Drawn rather than typed: the obvious route is the U+25C1/U+25B7 glyphs
+    as button text, but Poppins has no geometric-shapes block, so the
+    browser silently falls back to a font whose triangle is tiny - raising
+    font-size barely moves it. An SVG is the same size at any font stack.
+    """
+    path = "M16 4 L6 12 L16 20 Z" if direction == "prev" else "M8 4 L18 12 L8 20 Z"
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.2" '
+        'stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+ARROW_PREV_ICON = arrow_icon_data_uri("prev")
+ARROW_NEXT_ICON = arrow_icon_data_uri("next")
 
 st.markdown(
     f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-    html, body, [class*="css"]  {{ font-family: 'Poppins', sans-serif; }}
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"]  {{ font-family: 'Poppins', 'Noto Sans Thai', sans-serif; }}
     #MainMenu, footer {{visibility: hidden;}}
-    header [data-testid="stToolbarActions"] {{visibility: hidden;}}
-    .block-container {{ padding: 0 0.6rem 0.4rem 0.6rem; max-width: 100%; }}
-    iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh - 118px) !important; min-height: 520px; }}
+    /* Header is collapsed to nothing rather than display:none, so it stops
+       taking up space but Streamlit's "Running..." status widget can still
+       show through. Fully hiding the header also hid that indicator, which
+       left every click with no feedback at all during the ~1-2s rerun -
+       the toggle button in particular just looked dead. */
+    header[data-testid="stHeader"] {{ background: transparent; height: 0;
+        pointer-events: none; }}
+    header[data-testid="stHeader"] [data-testid="stToolbarActions"] {{ display: none; }}
+    [data-testid="stStatusWidget"] {{ pointer-events: auto; }}
+    [data-testid="stAppDeployButton"] {{display: none;}}
+    /* relative: an anchor for .page-header below, so it floats at the
+       map's own top-left corner instead of the raw viewport's (which would
+       land it over the sidebar, since fixed/absolute positioning otherwise
+       has no notion of "after the sidebar"). */
+    /* height+overflow: Streamlit still reserves normal-flow gap space around
+       the now-absolutely-positioned header/timeline elements (they collapse
+       to 0 height but the ~16px inter-element gap around each remains),
+       inflating this container past 100vh - which then throws off the
+       bottom:14px math on .st-key-timeline_bar below. Pinning the real
+       height and clipping the (empty, invisible) excess keeps that math
+       anchored to what's actually visible. */
+    .block-container {{ padding: 0; max-width: 100%; position: relative;
+        height: 100vh; overflow: hidden; }}
+    iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh - 4px) !important;
+        min-height: 380px; display: block; }}
 
-    .stApp {{ background: {P['app_bg']}; }}
-    header[data-testid="stHeader"] {{ background: {P['app_bg']}; }}
+    html, body, .stApp {{ background: {P['app_bg']}; }}
     [data-testid="stSidebar"] {{ background: {P['sidebar_bg']}; }}
     .stApp, .stApp p, .stApp span, .stApp label, .stMarkdown {{ color: {P['text']}; }}
 
-    .hero {{ background: {P['hero_grad']}; border-radius: 0 0 10px 10px; padding: 18px 24px;
-        margin: 0 0 10px 0; box-shadow: 0 2px 6px rgba(0,0,0,0.10); }}
-    .hero-title {{ font-size: 1.6rem; font-weight: 700; color: {P['hero_text']}; }}
-    .hero-sub {{ font-size: 0.82rem; color: {P['hero_text']}; opacity: 0.75; margin-top: 2px; }}
+    /* Title floats on top of the map (air4laos-style), not in its own bar
+       pushing the map down - full-bleed map, text stamped on top of it.
+       left+right (not just left): stretches the bar full-width; the flex
+       row inside is then centered within that full width. */
+    .page-header {{ position:absolute; top:20px; left:14px; right:14px; z-index:999;
+        background:{HEADER_NAVY}; border-radius:10px; box-shadow:0 2px 14px rgba(0,0,0,0.28);
+        padding:10px 14px; display:flex; align-items:baseline; justify-content:center; gap:8px; }}
+    /* !important: .stApp span (above) targets every span including these
+       two and otherwise wins on specificity (class+type beats a bare class). */
+    .page-title {{ font-size: 0.95rem; font-weight: 700; color: #ffffff !important; }}
+    .page-subtitle {{ font-size: 0.72rem; color: #b7c4d4 !important; }}
 
-    .card {{ border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-        margin-bottom: 14px; overflow:hidden; background: {P['card_bg']}; border: 1px solid {P['border']}; }}
-    .card-body {{ padding: 12px 14px; }}
-    .card-head {{ padding: 8px 14px; font-weight:700; font-size:1.02rem; }}
-    .head-teal {{ background: linear-gradient(90deg,#7be8c4,#3ed99b); color:#0d4a35; }}
-
-    .legend-item {{ display:flex; align-items:center; gap:8px; padding:4px 0; font-size:0.86rem; color:{P['text']}; }}
     .legend-swatch {{ width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }}
-    .legend-heading {{ font-weight:700; font-size:0.82rem; text-transform:uppercase; letter-spacing:.03em;
-        color:{P['muted']}; margin: 10px 0 4px 0; }}
-    .legend-caption {{ font-size:0.76rem; color:{P['muted']}; margin-top:6px; }}
 
     .sb-metric {{ border:1px solid {P['border']}; border-radius:12px; padding:10px 12px; margin-bottom:10px; }}
     .sb-value {{ font-size:1.5rem; font-weight:700; color:{P['text']}; }}
     .sb-label {{ font-size:0.72rem; color:{P['muted']}; text-transform:uppercase; letter-spacing:.04em; }}
+    /* Delta chip next to the hero number - direction is carried by an arrow
+       glyph and the text itself, never by color alone. */
+    .sb-delta {{ font-size:0.78rem; font-weight:600; margin-left:6px; }}
+    .sb-sub {{ font-size:0.72rem; color:{P['muted']}; margin-top:2px; }}
+
+    /* Streamflow gauge rows - same visual family as .risk-row. */
+    .sf-row {{ display:flex; justify-content:space-between; align-items:baseline;
+        padding:6px 0 0 0; font-size:0.82rem; }}
+    .sf-name {{ font-size:0.68rem; color:{P['muted']}; padding-bottom:6px; line-height:1.3; }}
+    .sf-value {{ font-weight:700; }}
+    .sf-note {{ font-size:0.68rem; color:{P['muted']}; line-height:1.4;
+        border-left:3px solid {P['border']}; padding:2px 0 2px 8px; margin-top:6px; }}
 
     .risk-row {{ display:flex; justify-content:space-between; align-items:center;
-        padding: 7px 10px; border-radius: 10px; margin-bottom:4px; color:{P['text']}; }}
-    .risk-row:hover {{ background: {P['sidebar_bg']}; }}
+        padding: 6px 10px 0 10px; border-radius: 10px; color:{P['text']}; }}
+    .risk-row-wrap:hover {{ background: {P['sidebar_bg']}; }}
     .risk-pill {{ display:inline-block; padding: 2px 10px; border-radius: 999px; font-weight:600;
         font-size: 0.78rem; color: #2b2b3a; }}
+    .risk-location {{ font-size:0.68rem; color:{P['muted']}; padding: 0 10px 6px 10px; line-height:1.3; }}
+
+    /* Floating translucent bar along the bottom, same treatment as the
+       header - anchored with clearance on the right so it doesn't sit
+       under the layer rail (which lives inside the map iframe, fixed to
+       its own corner, so it isn't reachable from out here). */
+    /* width:auto - Streamlit puts width:100% on every container, and against
+       an absolutely-positioned box that wins over `right`, so the bar was
+       laid out as (left:14px + full container width) and overhung the right
+       edge by 14px instead of matching .page-header's inset. Only with the
+       width released do left+right both take effect. */
+    /* padding-top 20 vs bottom 6: not a typo. The selected-date readout is
+       absolutely positioned ~8px ABOVE the slider's own box, so it eats 8px
+       of the top padding before anything is visible; the tick labels below
+       sit 6px inside their row. 20-8 = 12 above, 6+6 = 12 below - equal
+       breathing room, which is what the eye actually measures. */
+    .st-key-timeline_bar {{ position:absolute; left:14px; right:14px; width:auto !important;
+        bottom:14px; z-index:998;
+        background:rgba(255,255,255,0.5); backdrop-filter: blur(3px); border-radius:12px;
+        box-shadow:0 2px 14px rgba(0,0,0,0.12); padding:20px 14px 6px 14px; }}
+    div[data-testid="stSlider"] {{ padding-top: 0; }}
+    div[data-testid="stSlider"] > div > div > div:first-of-type {{ opacity: 0.85; }}
+    /* Streamlit's own min/max end labels ("01 Nov 2024" / "27 Dec 2024"
+       under each end of the track). Hidden because .wq-tick-row below
+       already labels every composite date - keeping both meant the two end
+       dates were printed twice, in two different formats, on two rows. */
+    div[data-testid="stSliderTickBar"] {{ display: none !important; }}
+    /* One label per composite date, evenly spaced under the slider (few
+       enough dates now - see RANGE_START/RANGE_END - that labelling every
+       point is readable instead of an unreadable comb). Now nested inside
+       the slider's own column (see the timeline_bar block) so its width
+       matches the slider instead of the whole row; the 6px side padding
+       matches the track's own inset from the slider widget's outer edge
+       (measured empirically) so labels line up with the actual tick
+       positions instead of the widget's outer bounding box. */
+    .wq-tick-row {{ display:flex; justify-content:space-between; padding:0 6px; margin-top:-34px; }}
+    .wq-tick-label {{ font-size:0.78rem; color:{P['muted']}; }}
+    .wq-tick-label.wq-tick-current {{ font-weight:700; color:{HEADER_NAVY}; }}
+    /* Prev/next/lang as bare buttons - no button box/border. */
+    div[data-testid="stButton"] button {{ border: none; background: none; box-shadow: none;
+        padding: 2px 6px; font-size: 1.5rem; color: {P['text']}; }}
+    div[data-testid="stButton"] button:hover {{ background: rgba(255,255,255,0.6); border-radius: 6px; }}
+    div[data-testid="stButton"] button:disabled {{ opacity: 0.3; }}
+
+    /* Calendar badge at the left end of the timeline bar - marks the bar as
+       a date control and names the year the ticks belong to (the tick
+       labels themselves are day+month only, so the year is otherwise only
+       visible in the selected-date readout above the slider). */
+    .wq-cal {{ display:flex; flex-direction:column; align-items:center; justify-content:center;
+        gap:1px; color:{HEADER_NAVY}; padding-top:4px; }}
+    .wq-cal svg {{ width:22px; height:22px; }}
+    .wq-cal-year {{ font-size:0.6rem; font-weight:600; color:{P['muted']}; letter-spacing:.02em; }}
+
+    /* Prev/next pair: outline triangles, tight together, no button boxes. */
+    .st-key-date_nav {{ display:flex; align-items:center; }}
+    .st-key-date_nav div[data-testid="stHorizontalBlock"] {{ gap:0 !important; }}
+    /* 1.9rem, not the 1.5rem the generic button rule above already sets -
+       anything at or below that leaves the arrows looking unchanged. The
+       explicit height matters as much as the font size: zeroing padding and
+       min-height collapsed the button box to 14px, which clipped a 30px
+       glyph down to a sliver, so the arrows looked unchanged however large
+       the font was set. */
+    /* Compact button box, large drawn triangle. The glyph that used to be
+       the label is hidden (font-size:0) and the arrow comes from a
+       background SVG instead - see arrow_icon_data_uri() for why. */
+    .st-key-date_nav button {{ padding:0 !important;
+        height:30px !important; min-height:30px !important; width:30px !important;
+        background-repeat:no-repeat !important; background-position:center !important;
+        background-size:24px 24px !important; }}
+    .st-key-date_nav button div, .st-key-date_nav button p {{ font-size:0 !important; }}
+    .st-key-nav_prev button {{ background-image:url("{ARROW_PREV_ICON}") !important; }}
+    .st-key-nav_next button {{ background-image:url("{ARROW_NEXT_ICON}") !important; }}
+    .st-key-date_nav button:hover:not(:disabled) {{ background-color:transparent !important; }}
+    .st-key-date_nav button:disabled {{ opacity:0.28 !important; }}
+
+    /* Language pill: both codes always visible, active one filled. The
+       active side is the *disabled* button (you cannot switch to the
+       language you are already in), so it is styled through :disabled -
+       and the default 0.3 dimming for disabled buttons is overridden here,
+       since here "disabled" means "current", not "unavailable". */
+    /* Styled as one switch, not two buttons: a navy pill with a white knob
+       that sits under whichever language is active. The knob is the
+       *disabled* button (you cannot select the language already in use), so
+       the active look is applied through :disabled - hence the opacity
+       override, since here disabled means "current", not "unavailable". */
+    .st-key-lang_toggle {{ background:{HEADER_NAVY}; border-radius:999px; padding:4px;
+        width:92px; margin-left:auto; box-shadow:0 2px 8px rgba(0,0,0,0.18); }}
+    .st-key-lang_toggle div[data-testid="stHorizontalBlock"] {{ gap:0 !important; }}
+    .st-key-lang_toggle button {{ font-size:0.74rem !important; font-weight:700 !important;
+        border-radius:999px !important; height:30px !important; min-height:30px !important;
+        padding:0 !important; background:transparent !important;
+        border:none !important; box-shadow:none !important; }}
+    /* The inner <p>/<div> needs the colour too: the global `.stApp p` rule
+       further up otherwise repaints the label dark, so the inactive side
+       came out near-black on navy instead of white. */
+    .st-key-lang_toggle button, .st-key-lang_toggle button p,
+    .st-key-lang_toggle button div {{ color:#ffffff !important; }}
+    .st-key-lang_toggle button:disabled {{ opacity:1 !important; background:#ffffff !important; }}
+    .st-key-lang_toggle button:disabled, .st-key-lang_toggle button:disabled p,
+    .st-key-lang_toggle button:disabled div {{ color:{HEADER_NAVY} !important; }}
+    .st-key-lang_toggle button:hover:not(:disabled) {{
+        background:rgba(255,255,255,0.16) !important; }}
+
+    /* Sidebar open/close control, both states: Streamlit's chevron replaced
+       by the turbidity-scale icon on a white disc. Two different elements
+       are involved - stSidebarCollapseButton lives in the sidebar header
+       while it is open, stExpandSidebarButton appears at the top-left of
+       the page once it is closed - so both are styled identically and the
+       control looks like the same button in either state.
+       opacity/visibility are forced because Streamlit fades the collapse
+       button in only on hover, which made it easy to miss. */
+    /* Each of these two testids is a wrapper in one Streamlit build and the
+       <button> itself in another, so both shapes are matched. */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stExpandSidebarButton"] {{ opacity: 1 !important; visibility: visible !important; }}
+    /* Moved out of the sidebar header / page corner to sit directly under
+       the map's zoom control, in the bottom-left stack: zoom ends at 828px
+       down a 1000px viewport and the timeline bar starts at 916px, so
+       bottom:114px centres a 38px control in the gap between them.
+       The two states need different `left` values because only one exists
+       at a time and the map's left edge moves with the sidebar: with the
+       sidebar open the zoom column sits at x=326-356, with it closed at
+       x=26-56. Each value centres the control under the zoom column for
+       the state it belongs to, so it looks like one button that stays put
+       relative to the zoom buttons. */
+    [data-testid="stSidebarCollapseButton"] {{
+        position: fixed !important; left: 314px !important; bottom: 114px !important;
+        width: 38px !important; height: 38px !important; z-index: 1002 !important; }}
+    [data-testid="stExpandSidebarButton"] {{
+        position: fixed !important; left: 20px !important; bottom: 114px !important;
+        z-index: 1002 !important; }}
+    /* Once collapsed, the collapse button still exists and - being
+       position:fixed - escapes the zero-width sidebar, landing right on top
+       of the expand button that has just replaced it. Hide it in that state
+       so only one control is ever on screen. */
+    [data-testid="stSidebar"][aria-expanded="false"] [data-testid="stSidebarCollapseButton"] {{
+        display: none !important; }}
+    [data-testid="stSidebarCollapseButton"] button,
+    button[data-testid="stSidebarCollapseButton"],
+    [data-testid="stExpandSidebarButton"] button,
+    button[data-testid="stExpandSidebarButton"] {{
+        width: 38px !important; height: 38px !important; border-radius: 50% !important;
+        background: #ffffff url("{SIDEBAR_ICON}") center / 22px 22px no-repeat !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.22) !important; border: none !important;
+        padding: 0 !important; }}
+    [data-testid="stSidebarCollapseButton"] button:hover,
+    button[data-testid="stSidebarCollapseButton"]:hover,
+    [data-testid="stExpandSidebarButton"] button:hover,
+    button[data-testid="stExpandSidebarButton"]:hover {{ filter: brightness(1.04); }}
+    /* The chevron itself. It is NOT an <svg> - Streamlit renders it as a
+       Material Symbols ligature in <span data-testid="stIconMaterial">
+       (text content literally "keyboard_double_arrow_left"), so hiding svg
+       does nothing and the glyph sits on top of the icon. Target that span
+       specifically: hiding all children instead also hid the <button> in
+       the open state, where the testid is on a wrapper around it, and
+       collapsed the control to 0x0. The button keeps its aria-label, so
+       nothing accessible is lost. */
+    [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"],
+    [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {{
+        display: none !important; }}
+
+    /* Ranked district rows. */
+    .rank-row {{ display:flex; align-items:center; gap:8px; padding:5px 0 0 0; font-size:0.8rem; }}
+    .rank-num {{ width:18px; color:{P['muted']}; font-size:0.72rem; flex-shrink:0; }}
+    .rank-name {{ flex:1; }}
+    .rank-ntu {{ font-weight:700; }}
+    .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
+        font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -139,25 +510,27 @@ def turbidity_overlay_rgba(turbidity_map, water_mask):
     return rgba
 
 
-def render_map_legend():
-    rows = "".join(
-        f'<div class="legend-item"><span class="legend-swatch" style="background:#9aa3ad;"></span>{label}</div>'
-        for label in [
-            "Basemap", "Province boundary", "District boundary", "Turbidity", "Ground stations",
-        ]
+def build_legend_html():
+    layer_rows = (
+        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{PROVINCE_LINE_COLOR}"></span>{T["legend_province"]}</div>'
+        f'<div class="wq-legend-item"><span class="wq-legend-line-dashed" style="border-top:2px dashed {DISTRICT_LINE_COLOR}"></span>{T["legend_district"]}</div>'
+        f'<div class="wq-legend-item"><span class="wq-legend-circle" style="border:2px solid {STATION_STROKE_COLOR}"></span>{T["legend_pcd_stations"]}</div>'
     )
-    turbidity_rows = "".join(
-        f'<div class="legend-item"><span class="legend-swatch" style="background:{c["color"]}"></span>{c["label"]}</div>'
-        for c in style.CLASSES
+    turbidity_rows = []
+    prev_max = 0
+    for c in style.CLASSES:
+        range_label = f"&gt;{prev_max} NTU" if c["max"] == float("inf") else f"{prev_max}-{c['max']:.0f} NTU"
+        turbidity_rows.append(
+            f'<div class="wq-legend-item"><span class="wq-legend-swatch" style="background:{c["color"]}"></span>'
+            f'{c["label"]} <span class="wq-legend-range">({range_label})</span></div>'
+        )
+        prev_max = c["max"]
+    turbidity_rows = "".join(turbidity_rows)
+    return (
+        f'<div class="wq-legend-heading">{T["legend_layers"]}</div>{layer_rows}'
+        f'<div class="wq-legend-heading">{T["legend_turbidity_levels"]}</div>{turbidity_rows}'
+        f'<div class="wq-legend-caption">{T["legend_caption"]}</div>'
     )
-    html = (
-        '<div class="card"><div class="card-head head-teal">Map Legend</div><div class="card-body">'
-        f'<div class="legend-heading">Layers</div>{rows}'
-        f'<div class="legend-heading">Turbidity Levels</div>{turbidity_rows}'
-        '<div class="legend-caption">General reference scale for this dashboard, not an official Thai PCD standard.</div>'
-        '</div></div>'
-    )
-    st.markdown(html, unsafe_allow_html=True)
 
 
 df_val, y, y_pred, r2, rmse = load_validation()
@@ -167,186 +540,561 @@ station_summary = (
          Turbidity_Actual=("Turbidity_", "mean"), Predicted_NTU=("Predicted_NTU", "mean"))
     .sort_values("Predicted_NTU", ascending=False)
 )
-latest_row = df_val.sort_values("Date").iloc[-1]
 
-# ------------------------------------------------------------- sidebar ----
-with st.sidebar:
-    st.caption("Situation overview - Ubon Ratchathani")
+available = [
+    (d, p) for d, p in pc.list_available_composites(".")
+    if RANGE_START <= d <= RANGE_END
+]
+if not available:
+    st.error(
+        f"No province composites found between {RANGE_START:%d %b %Y} and {RANGE_END:%d %b %Y} "
+        "(expected Ubon_S2_YYYYMMDD.tif files). Run refresh_ubon_data.py or backfill_ubon_weekly.py first."
+    )
+    st.stop()
 
-    st.markdown("#### Latest Turbidity")
-    c = style.classify(latest_row["Predicted_NTU"])
-    st.markdown(
-        f'<div class="sb-metric"><div class="sb-value">{latest_row["Predicted_NTU"]:.1f} NTU</div>'
-        f'<div class="sb-label">predicted &middot; {latest_row["Code"]} &middot; '
-        f'{latest_row["Date"].date().isoformat()}</div>'
-        f'<span class="legend-swatch" style="background:{c["color"]}"></span> {c["label"]}'
-        f'&nbsp;&nbsp;<span style="color:#8592A3;">(PCD actual: {latest_row["Turbidity_"]:.1f} NTU)</span></div>',
-        unsafe_allow_html=True,
+dates = [d for d, _ in available]
+# Widget renders below the map (as a timeline bar), but its value is needed
+# above to pick which composite to load - initialize the session_state key
+# first and read from there; st.select_slider(key=...) further down both
+# displays and updates that same state.
+if "picked_date" not in st.session_state or st.session_state.picked_date not in dates:
+    st.session_state.picked_date = dates[-1]
+picked_date = st.session_state.picked_date
+picked_path = dict(available)[picked_date]
+
+rgb, turbidity_map, valid_mask, bounds = load_province_composite(picked_path)
+
+
+@st.cache_data(show_spinner=False)
+def load_history_cache():
+    """Precomputed per-composite aggregates from precompute_history.py, or an
+    empty stub if that file was never generated.
+
+    Both series below are defined over *every* composite in range, so computing
+    them live means opening all of them - ~12s of inference each locally, and
+    on top of that a ~28MB Drive download each in the cloud, where there's no
+    persistent disk. That's minutes of blank screen per cold visit. The values
+    are one float per date, so they ship precomputed instead (see
+    precompute_history.py for how to regenerate).
+    """
+    try:
+        with open(HISTORY_CACHE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"province": {}, "stations": {}}
+
+
+@st.cache_data(show_spinner="Loading station history...")
+def station_history(lat, lon):
+    """Predicted turbidity at (lat, lon), sampled from every available
+    composite - the "day by day / week by week" series for one station.
+    """
+    cached = load_history_cache()["stations"].get(f"{lat:.5f},{lon:.5f}", {})
+    rows = []
+    for d, path in available:
+        # Cache miss = a composite added since the last precompute run. Fall
+        # back to loading it so a freshly refreshed week is never silently
+        # missing from the trend; it just costs what it used to.
+        if d.isoformat() in cached:
+            rows.append({"Date": pd.Timestamp(d), "NTU": cached[d.isoformat()]})
+            continue
+        _, turb_map, mask, b = load_province_composite(path)
+        val = pc.sample_at(turb_map, mask, b, lat, lon)
+        if val is not None:
+            rows.append({"Date": pd.Timestamp(d), "NTU": val})
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner="Loading province trend...")
+def province_history():
+    """Province-wide mean turbidity per composite date - the situation-overview
+    series. Unlike station_history() (one sampled point per station), this
+    averages every valid water pixel in the province, so it answers "how is
+    the province as a whole trending" rather than "how is this one station".
+    """
+    cached = load_history_cache()["province"]
+    rows = []
+    for d, path in available:
+        if d.isoformat() in cached:  # see station_history() on the fallback
+            rows.append({"Date": pd.Timestamp(d), "NTU": cached[d.isoformat()]})
+            continue
+        _, turb_map, mask, _bounds = load_province_composite(path)
+        if mask.any():
+            rows.append({"Date": pd.Timestamp(d), "NTU": float(turb_map[mask].mean())})
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
+def load_provinces_for_display(tolerance=0.02):
+    """Thailand province outlines, simplified again for rendering.
+
+    The cached GeoJSON is ~490KB of 76 polygons, and streamlit-folium
+    re-sends the whole map (this included) to the browser on *every* rerun -
+    Leaflet re-drawing it is the dominant cost of every interaction, ~5s
+    measured. Simplifying to ~2km cuts it to under a third with no visible
+    difference at the zoom levels this map ever shows.
+    """
+    from shapely.geometry import mapping, shape
+
+    features = []
+    for f in geo.load_thailand_provinces()["features"]:
+        geom = shape(f["geometry"]).simplify(tolerance, preserve_topology=True)
+        if geom.is_empty:
+            continue
+        features.append({
+            "type": "Feature",
+            "properties": {"ADM1_NAME": f["properties"].get("ADM1_NAME")},
+            "geometry": mapping(geom),
+        })
+    return {"type": "FeatureCollection", "features": features}
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
+def load_level_history(start, end):
+    """Daily Mun River stage over [start, end] as a tidy DataFrame.
+
+    Wrapped so a network failure degrades to an empty frame ("no data")
+    rather than taking the page down.
+    """
+    try:
+        history = rid.level_history_between(start, end)
+    except Exception:
+        return pd.DataFrame(columns=["Date", "Gauge", "Level"])
+    rows = [
+        {"Date": pd.Timestamp(d), "Gauge": code, "Level": level}
+        for code, series in history.items()
+        for d, level in series
+    ]
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
+def district_ntu(path: str):
+    """Mean turbidity per Ubon district for one composite, highest first.
+
+    Zonal statistics rather than per-station values: this answers "which
+    district is worst" for every district with water in it, not only the
+    ones that happen to contain a PCD station. Districts are burned into a
+    label grid aligned to the raster once (cheap - ~10ms) and averaged with
+    a boolean mask per zone.
+    """
+    import rasterio.features
+    import rasterio.transform
+
+    try:
+        districts = geo.load_ubon_districts()
+    except FileNotFoundError:
+        return pd.DataFrame(columns=["District", "NTU"])
+
+    _rgb, turb, mask, b = load_province_composite(path)
+    h, w = turb.shape
+    transform = rasterio.transform.from_bounds(b.left, b.bottom, b.right, b.top, w, h)
+    names = [f["properties"]["ADM2_NAME"] for f in districts["features"]]
+    zones = rasterio.features.rasterize(
+        [(f["geometry"], i + 1) for i, f in enumerate(districts["features"])],
+        out_shape=(h, w), transform=transform, fill=0, dtype="int32",
     )
 
-    st.markdown("#### Streamflow Summary")
-    gauge_label = st.selectbox("Gauge", [f"{code} - {name}" for code, name in RID_GAUGES.items()],
-                                label_visibility="collapsed")
-    gauge_code = gauge_label.split(" - ")[0]
-    flow = rid.get_streamflow(gauge_code)
-    if flow["source"] == "live" and flow["stations"]:
-        info = flow["stations"].get(gauge_code) or next(iter(flow["stations"].values()))
-        d1, d2 = st.columns(2)
-        d1.metric("Discharge", f'{info["discharge_cms"]:.1f} cms' if info["discharge_cms"] is not None else "n/a")
-        d2.metric("Level", f'{info["waterlevel_m"]:.2f} m' if info["waterlevel_m"] is not None else "n/a")
-        st.caption(f"Live RID | {info.get('status', '-')}")
-    else:
-        st.warning("Live RID feed unavailable right now.")
-        st.caption("No offline substitute used (only unrelated-basin data exists locally).")
+    rows = []
+    for i, name in enumerate(names, start=1):
+        sel = (zones == i) & mask
+        if sel.any():
+            rows.append({"District": name, "NTU": float(turb[sel].mean())})
+    return pd.DataFrame(rows).sort_values("NTU", ascending=False).reset_index(drop=True)
 
-    st.markdown("#### Stations, High Risk First")
-    for _, r in station_summary.iterrows():
-        cls = style.classify(r["Predicted_NTU"])
-        st.markdown(
-            f'<div class="risk-row"><span>{r["Code"]}</span>'
-            f'<span class="risk-pill" style="background:{cls["color"]}">{r["Predicted_NTU"]:.1f} NTU &middot; {cls["label"]}</span></div>',
-            unsafe_allow_html=True,
-        )
 
-# --------------------------------------------------------------- top bar --
-if "legend_open" not in st.session_state:
-    st.session_state.legend_open = True
+# Per-station turbidity for the *currently selected* composite date - this is
+# what both the map markers and the sidebar station list show, so picking a
+# different date updates both instead of only the map's own raster overlay.
+station_now = station_summary.copy()
+station_now["Predicted_NTU"] = [
+    pc.sample_at(turbidity_map, valid_mask, bounds, r.station_la, r.station_lo) or r.Predicted_NTU
+    for r in station_summary.itertuples()
+]
+station_now = station_now.sort_values("Predicted_NTU", ascending=False)
 
+station_geo = geo.station_locations(
+    [(r.Code, r.station_la, r.station_lo) for r in station_summary.itertuples()], lang=LANG,
+)
+
+# Province-wide mean for the selected composite. Free - this composite's
+# raster is already in memory.
+province_now = float(turbidity_map[valid_mask].mean()) if valid_mask.any() else None
+
+# ---------------------------------------------------------------- title ---
 st.markdown(
-    '<div class="hero"><div class="hero-title">Mekong Water Quality - Thailand</div>'
-    '<div class="hero-sub">Satellite-derived turbidity monitoring - Ubon Ratchathani</div></div>',
+    f'<div class="page-header"><span class="page-title">{T["page_title"]}</span>'
+    f'<span class="page-subtitle">{T["page_subtitle"]}</span></div>',
     unsafe_allow_html=True,
 )
 
-top_l, top_r1, top_r2 = st.columns([6, 1, 1])
-with top_r1:
-    if st.button("Dark mode" if not st.session_state.dark_mode else "Light mode"):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
-with top_r2:
-    if st.button("Hide legend" if st.session_state.legend_open else "Show legend"):
-        st.session_state.legend_open = not st.session_state.legend_open
-        st.rerun()
+# Center/zoom persist across reruns entirely client-side (see
+# map_controls.add_view_persistence, called below) - only the very first-ever
+# visit has nothing saved, so this fallback only has to be reasonably close;
+# it's immediately corrected (see add_view_persistence) either from a saved
+# position or a proper fitBounds to the province boundary.
+boundary = geo.load_boundary()
+b_minx, b_miny, b_maxx, b_maxy = boundary.bounds
+center_lat = station_summary["station_la"].mean()
+center_lon = station_summary["station_lo"].mean()
+fmap = folium.Map(location=[center_lat, center_lon], zoom_start=8, tiles=None, zoom_control=False)
+fmap.get_root().header.add_child(folium.Element(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
+    .leaflet-popup-content, .leaflet-tooltip {
+        font-family: 'Poppins', 'Noto Sans Thai', sans-serif !important;
+    }
+    /* No focus ring on click - was showing as a black box around whatever
+       shape (often a huge invisible province polygon) took the click. */
+    .leaflet-container *:focus, .leaflet-container *:focus-visible {
+        outline: none !important;
+    }
+    </style>
+    """
+))
 
-if st.session_state.legend_open:
-    col_map, col_right = st.columns([3.3, 1])
-else:
-    col_map = st.container()
-    col_right = None
+# --- Switchable basemaps, one TileLayer per style; the fold-out rail
+# (map_controls.add_layer_rail, added below) swaps the active one. ---
+basemap_tile_layers = {}
+for name, cfg in BASEMAPS.items():
+    layer = folium.TileLayer(
+        tiles=cfg["tiles"], attr=cfg["attr"], name=name, control=False, show=(name == DEFAULT_BASEMAP),
+    )
+    layer.add_to(fmap)
+    basemap_tile_layers[name] = layer
 
-with col_map:
-    available = pc.list_available_composites(".")
-    if not available:
-        st.error(
-            "No province composites found (expected Ubon_S2_YYYYMMDD.tif files). "
-            "Run refresh_ubon_data.py or backfill_ubon_weekly.py first."
+station_layer = folium.FeatureGroup(name="Ground Stations", show=True)
+for _, r in station_now.iterrows():
+    cls = style.classify(r["Predicted_NTU"])
+    folium.CircleMarker(
+        location=[r["station_la"], r["station_lo"]],
+        radius=8, color=STATION_STROKE_COLOR, weight=1, fill=True,
+        fill_color=cls["color"], fill_opacity=0.95,
+        popup=folium.Popup(
+            f"<b>{r['Code']}</b><br>{station_geo.get(r['Code'], '')}"
+            f"<br>{T['predicted_satellite']}: {r['Predicted_NTU']:.1f} NTU &middot; {picked_date:%d %b %Y}"
+            f"<br>{T['measured_pcd_avg']}: {r['Turbidity_Actual']:.1f} NTU<br>{T['class_label']}: {cls['label']}",
+            max_width=220,
+        ),
+        tooltip=r["Code"],
+    ).add_to(station_layer)
+# Not added to fmap yet - added last, below, after the boundary/raster
+# layers, so station points always draw on top of them instead of being
+# visually crossed out by a province/district line passing through.
+stations_def = {
+    "key": "stations", "label": T["pcd_stations_label"], "layer": station_layer, "default_on": True,
+    "title": T["pcd_dept"],
+}
+
+# --- All Thailand provinces, Ubon Ratchathani highlighted ---
+province_def = None
+try:
+    provinces_geojson = load_provinces_for_display()
+
+    def province_style(feature):
+        is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
+        return {
+            "color": PROVINCE_FOCUS_COLOR if is_focus else PROVINCE_LINE_COLOR,
+            "weight": 3 if is_focus else 1,
+            # fill:False (not just fillOpacity:0) - otherwise the invisible
+            # fill still counts as "painted" for hit-testing and the whole
+            # province polygon (which covers every station) swallows clicks
+            # meant for the markers underneath it.
+            "fill": False,
+            "fillOpacity": 0,
+        }
+
+    province_layer = folium.GeoJson(
+        provinces_geojson, name="Provinces", style_function=province_style,
+        tooltip=folium.GeoJsonTooltip(fields=["ADM1_NAME"], aliases=[""]),
+        show=True,
+    )
+    province_layer.add_to(fmap)
+    province_def = {"key": "province", "label": T["province_label"], "layer": province_layer, "default_on": True}
+except FileNotFoundError as e:
+    st.info(str(e))
+
+# --- Ubon districts (off by default - secondary detail) ---
+district_def = None
+try:
+    districts_geojson = geo.load_ubon_districts()
+    district_layer = folium.GeoJson(
+        districts_geojson, name="Districts",
+        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 1, "dashArray": "3,3",
+                                   "fill": False, "fillOpacity": 0},
+        tooltip=folium.GeoJsonTooltip(fields=["ADM2_NAME"], aliases=[""]),
+        show=False,
+    )
+    district_layer.add_to(fmap)
+    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": False}
+except FileNotFoundError:
+    pass
+
+overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
+turbidity_layer = folium.raster_layers.ImageOverlay(
+    image=overlay_rgba,
+    bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+    opacity=0.9, name="Turbidity", show=True,
+)
+turbidity_layer.add_to(fmap)
+turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": turbidity_layer, "default_on": True}
+
+station_layer.add_to(fmap)
+
+overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def] if d is not None]
+map_controls.add_layer_rail(
+    fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
+    legend_label=T["legend_label"], basemap_label=T["basemap_label"],
+)
+map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
+map_controls.add_zoom_control(fmap)
+
+# height is generously large; the CSS rule on this iframe (see <style> above)
+# clips/fills it to the actual viewport, so this just needs to cover the tallest
+# realistic screen and avoid leaving blank space below a shorter fixed render.
+# returned_objects=[]: panning/zooming is handled entirely client-side (see
+# add_view_persistence) precisely so it does NOT feed back into a Streamlit
+# return value - that would rerun the whole script on every pan/zoom tick.
+st_folium(fmap, use_container_width=True, height=1400, returned_objects=[])
+
+idx = dates.index(picked_date)
+
+with st.container(key="timeline_bar"):
+    # calendar badge | slider | prev/next | language
+    nav_cal, nav_slider, nav_arrows, nav_lang = st.columns([1.1, 18, 1.7, 2.2])
+    with nav_cal:
+        years = sorted({d.year for d in dates})
+        year_label = str(years[0]) if len(years) == 1 else f"{years[0]}-{years[-1]}"
+        st.markdown(
+            f'<div class="wq-cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
+            f'<rect x="3" y="5" width="18" height="16" rx="2.5"/>'
+            f'<path d="M3 10h18M8 3v4M16 3v4"/>'
+            f'<path d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2M11 17.5h2"/></svg>'
+            f'<div class="wq-cal-year">{year_label}</div></div>',
+            unsafe_allow_html=True,
         )
-    else:
-        dates = [d for d, _ in available]
-        picked_date = st.selectbox(
-            "Imagery date (7-day composite ending this date)", dates,
-            index=len(dates) - 1, format_func=lambda d: d.strftime("%d %b %Y"),
+
+    # The prev/next block is executed BEFORE the slider even though it sits
+    # to the right of it: `with nav_arrows` writes into that column wherever
+    # this code appears, so placement is unaffected by execution order.
+    # Order matters here because both controls own the same state. Once
+    # st.select_slider(key="picked_date") has been instantiated in a run,
+    # Streamlit refuses further assignment to st.session_state.picked_date
+    # and drops it silently - which left the arrows visibly doing nothing.
+    # Running them first means the assignment lands before the widget exists.
+    with nav_arrows:
+        # Both arrows in one column, side by side, so they read as a single
+        # prev/next pair rather than bracketing the slider.
+        with st.container(key="date_nav"):
+            prev_col, next_col = st.columns(2)
+            # Labels are kept (and hidden with CSS) rather than blanked, so
+            # the buttons still have accessible names.
+            with prev_col:
+                with st.container(key="nav_prev"):
+                    if st.button("Previous date", disabled=idx == 0, width="stretch"):
+                        st.session_state.picked_date = dates[idx - 1]
+                        st.rerun()
+            with next_col:
+                with st.container(key="nav_next"):
+                    if st.button("Next date", disabled=idx == len(dates) - 1, width="stretch"):
+                        st.session_state.picked_date = dates[idx + 1]
+                        st.rerun()
+
+    with nav_slider:
+        st.select_slider(
+            f"Imagery date, {dates[0]:%d %b %Y} to {dates[-1]:%d %b %Y}", options=dates,
+            key="picked_date", format_func=lambda d: d.strftime("%d %b %Y"),
             label_visibility="collapsed",
         )
-        picked_path = dict(available)[picked_date]
+        # One label per composite date (few enough, now that the range is
+        # fixed to RANGE_START..RANGE_END, to label every point instead of
+        # needing to thin them out) - current selection bolded. Placed
+        # INSIDE this column (not as a separate top-level element after the
+        # whole st.columns row) so it inherits the slider's own width rather
+        # than the full row's - that mismatch was why labels didn't line up
+        # with the actual tick positions before.
+        tick_row_html = "".join(
+            f'<span class="wq-tick-label{" wq-tick-current" if d == picked_date else ""}">{d:%d %b}</span>'
+            for d in dates
+        )
+        st.markdown(f'<div class="wq-tick-row">{tick_row_html}</div>', unsafe_allow_html=True)
+    with nav_lang:
+        # Both languages are always shown, the active one highlighted, so the
+        # control reads as a state rather than as "press this to switch" -
+        # the previous single button showed only the language you'd get,
+        # which is ambiguous about which one is currently on.
+        with st.container(key="lang_toggle"):
+            en_col, th_col = st.columns(2)
+            for col, code in ((en_col, "en"), (th_col, "th")):
+                with col:
+                    with st.container(key=f"lang_{code}{'_on' if LANG == code else ''}"):
+                        if st.button(code.upper(), width="stretch", disabled=LANG == code):
+                            st.session_state.lang = code
+                            st.rerun()
 
-        rgb, turbidity_map, valid_mask, bounds = load_province_composite(picked_path)
+# The sidebar is rendered here, after the map, so the map paints first on a
+# cold load - the sections below loop over every composite and make a network
+# call to the RID gauge service, and are the slowest things on the page.
+with st.sidebar:
+    st.caption(T["situation_overview"])
 
-        boundary = geo.load_boundary()
-        b_minx, b_miny, b_maxx, b_maxy = boundary.bounds
+    # --- Headline: latest province-wide turbidity ---
+    st.markdown(f"#### {T['latest_turbidity']}")
+    if province_now is None:
+        st.caption(T["no_coverage"])
+    else:
+        c = style.classify(province_now)
+        st.markdown(
+            f'<div class="sb-metric"><div class="sb-value">{province_now:.1f} NTU</div>'
+            f'<div class="sb-label">{T["province_average"]} &middot; {picked_date:%d %b %Y}</div>'
+            f'<div style="margin-top:6px;"><span class="legend-swatch" style="background:{c["color"]}"></span> '
+            f'{c["label"]}</div></div>',
+            unsafe_allow_html=True,
+        )
+        # Change vs the preceding composite. Direction is carried by an arrow
+        # and the number, not by color alone.
+        prov = province_history()
+        prior = prov[prov["Date"] < pd.Timestamp(picked_date)] if not prov.empty else prov
+        if not prior.empty:
+            delta = province_now - float(prior.iloc[-1]["NTU"])
+            if abs(delta) < 0.05:
+                chip = f'<span class="sb-delta" style="color:{P["muted"]}">= {T["no_change"]}</span>'
+            else:
+                arrow, color = ("▲", "#c0392b") if delta > 0 else ("▼", "#1d7a4c")
+                chip = f'<span class="sb-delta" style="color:{color}">{arrow} {abs(delta):.1f} NTU</span>'
+            st.markdown(f'<div class="sb-sub">{T["vs_previous"]} {chip}</div>', unsafe_allow_html=True)
 
-        fmap = folium.Map(zoom_start=8, tiles=None)
-        fmap.fit_bounds([[b_miny, b_minx], [b_maxy, b_maxx]])
-        fmap.get_root().header.add_child(folium.Element(
-            """
-            <style>
-            @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-            .leaflet-control-layers, .leaflet-control-layers-list, .leaflet-control-attribution,
-            .leaflet-popup-content, .leaflet-tooltip {
-                font-family: 'Poppins', sans-serif !important;
-            }
-            .leaflet-control-layers {
-                border-radius: 10px !important;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.18) !important;
-                border: none !important;
-                padding: 10px 14px !important;
-            }
-            .leaflet-control-layers-base label, .leaflet-control-layers-overlays label {
-                font-size: 0.85rem !important;
-                padding: 3px 0 !important;
-            }
-            .leaflet-control-layers-separator { margin: 8px 0 !important; }
-            .leaflet-control-layers-toggle {
-                width: 32px !important; height: 32px !important; border-radius: 8px !important;
-            }
-            </style>
-            """
-        ))
+    # --- Turbidity trend, per station, over the whole analysis window ---
+    st.markdown(f"#### {T['turbidity_trend']}")
+    st.caption(T["window_label"])
+    qs_code = st.selectbox(T["station_select"], station_summary["Code"], label_visibility="collapsed")
+    qs_row = station_summary.set_index("Code").loc[qs_code]
+    history = station_history(qs_row["station_la"], qs_row["station_lo"])
+    if history.empty:
+        st.caption(T["no_coverage"])
+    else:
+        predicted = history.assign(Series=T["predicted_satellite"])
+        # PCD ground samples for this station, if any fall in the window -
+        # they are sparse and rarely coincide with a composite date, so they
+        # are drawn as separate points rather than a second line.
+        actual_pts = df_val.loc[
+            (df_val["Code"] == qs_code)
+            & (df_val["Date"] >= pd.Timestamp(RANGE_START))
+            & (df_val["Date"] <= pd.Timestamp(RANGE_END)),
+            ["Date", "Turbidity_"],
+        ].rename(columns={"Turbidity_": "NTU"})
 
-        # --- Switchable basemaps: Leaflet's own radio-button base-layer group ---
-        for name, cfg in BASEMAPS.items():
-            folium.TileLayer(
-                tiles=cfg["tiles"], attr=cfg["attr"], name=name, control=True, show=(name == "Light"),
-            ).add_to(fmap)
+        color_scale = alt.Scale(
+            domain=[T["predicted_satellite"], T["actual_pcd"]],
+            range=[COLOR_PREDICTED, COLOR_ACTUAL],
+        )
+        has_actual = not actual_pts.empty
+        # Legend only when there really are two series; a lone series is
+        # already named by the section heading.
+        legend = alt.Legend(title=None, orient="bottom") if has_actual else None
+        layers = [
+            alt.Chart(predicted).mark_line(
+                strokeWidth=2,
+                point=alt.OverlayMarkDef(size=45, filled=True, color=COLOR_PREDICTED),
+            ).encode(
+                x=alt.X("Date:T", title=None, axis=alt.Axis(format="%d %b")),
+                y=alt.Y("NTU:Q", title="NTU", scale=alt.Scale(zero=False)),
+                color=alt.Color("Series:N", scale=color_scale, legend=legend),
+                tooltip=[
+                    alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
+                    alt.Tooltip("NTU:Q", title="NTU", format=".1f"),
+                ],
+            )
+        ]
+        if has_actual:
+            layers.append(
+                alt.Chart(actual_pts.assign(Series=T["actual_pcd"])).mark_circle(size=70).encode(
+                    x="Date:T", y="NTU:Q",
+                    color=alt.Color("Series:N", scale=color_scale, legend=legend),
+                    tooltip=[
+                        alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
+                        alt.Tooltip("NTU:Q", title="NTU", format=".1f"),
+                    ],
+                )
+            )
+        st.altair_chart(
+            alt.layer(*layers)
+            .properties(height=165)
+            .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7", tickColor="#c3c2b7",
+                            labelColor="#52514e", titleColor="#52514e", labelFontSize=10)
+            .configure_view(strokeWidth=0)
+            .configure_legend(labelFontSize=10, symbolSize=60),
+            width="stretch",
+        )
+        st.caption(f"{qs_code} &middot; {station_geo.get(qs_code, '')}")
 
-        # --- All Thailand provinces, Ubon Ratchathani highlighted ---
-        try:
-            provinces_geojson = geo.load_thailand_provinces()
-
-            def province_style(feature):
-                is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
-                return {
-                    "color": "#e05a2b" if is_focus else "#9aa3ad",
-                    "weight": 3 if is_focus else 1,
-                    "fillOpacity": 0,
-                }
-
-            folium.GeoJson(
-                provinces_geojson, name="Provinces", style_function=province_style,
-                tooltip=folium.GeoJsonTooltip(fields=["ADM1_NAME"], aliases=[""]),
-                show=True,
-            ).add_to(fmap)
-        except FileNotFoundError as e:
-            st.info(str(e))
-
-        # --- Ubon districts (off by default - secondary detail) ---
-        try:
-            districts_geojson = geo.load_ubon_districts()
-            folium.GeoJson(
-                districts_geojson, name="Districts",
-                style_function=lambda f: {"color": "#6b7684", "weight": 1, "dashArray": "3,3", "fillOpacity": 0},
-                tooltip=folium.GeoJsonTooltip(fields=["ADM2_NAME"], aliases=[""]),
-                show=False,
-            ).add_to(fmap)
-        except FileNotFoundError:
-            pass
-
-        overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
-        folium.raster_layers.ImageOverlay(
-            image=overlay_rgba,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            opacity=0.9, name="Turbidity", show=True,
-        ).add_to(fmap)
-
-        station_layer = folium.FeatureGroup(name="Ground Stations", show=True)
-        for _, r in station_summary.iterrows():
-            cls = style.classify(r["Predicted_NTU"])
-            folium.CircleMarker(
-                location=[r["station_la"], r["station_lo"]],
-                radius=8, color="#2b2b3a", weight=1, fill=True,
-                fill_color=cls["color"], fill_opacity=0.95,
-                popup=folium.Popup(
-                    f"<b>{r['Code']}</b><br>Predicted: {r['Predicted_NTU']:.1f} NTU"
-                    f"<br>Actual (PCD): {r['Turbidity_Actual']:.1f} NTU<br>Class: {cls['label']}",
-                    max_width=200,
+    # --- Streamflow / water level, RID Mun River gauges ---
+    st.markdown(f"#### {T['streamflow_heading']}")
+    st.caption(T["window_label"])
+    levels = load_level_history(RANGE_START, RANGE_END)
+    if levels.empty:
+        st.markdown(
+            f'<div class="sb-sub">{T["streamflow_unavailable"]}</div>', unsafe_allow_html=True,
+        )
+    else:
+        gauges = sorted(levels["Gauge"].unique())
+        flow_chart = (
+            alt.Chart(levels)
+            .mark_line(strokeWidth=2)
+            .encode(
+                x=alt.X("Date:T", title=None, axis=alt.Axis(format="%d %b")),
+                y=alt.Y("Level:Q", title=T["level_m"], scale=alt.Scale(zero=False)),
+                color=alt.Color(
+                    "Gauge:N",
+                    scale=alt.Scale(domain=gauges, range=GAUGE_COLORS[: len(gauges)]),
+                    legend=alt.Legend(title=None, orient="bottom"),
                 ),
-                tooltip=r["Code"],
-            ).add_to(station_layer)
-        station_layer.add_to(fmap)
+                tooltip=[
+                    alt.Tooltip("Gauge:N", title=T["gauge"]),
+                    alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
+                    alt.Tooltip("Level:Q", title=T["water_level"], format=".2f"),
+                ],
+            )
+            .properties(height=165)
+            .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7", tickColor="#c3c2b7",
+                            labelColor="#52514e", titleColor="#52514e", labelFontSize=10)
+            .configure_view(strokeWidth=0)
+            .configure_legend(labelFontSize=10, symbolSize=60)
+        )
+        st.altair_chart(flow_chart, width="stretch")
+        for code in gauges:
+            st.markdown(
+                f'<div class="sf-name"><b>{code}</b> &middot; {rid.station_name(code)}</div>',
+                unsafe_allow_html=True,
+            )
+    st.markdown(f'<div class="sf-note">{T["streamflow_note"]}</div>', unsafe_allow_html=True)
 
-        folium.LayerControl(position="bottomright", collapsed=True).add_to(fmap)
-        st_folium(fmap, use_container_width=True, height=750, returned_objects=[])
+    # --- District ranking by turbidity ---
+    st.markdown(f"#### {T['district_ranking']}")
+    districts = district_ntu(picked_path)
+    if districts.empty:
+        st.caption(T["no_districts"])
+    else:
+        st.caption(f'{T["district_ranking_note"]} &middot; {picked_date:%d %b %Y}')
+        for i, row in enumerate(districts.itertuples(), start=1):
+            cls = style.classify(row.NTU)
+            st.markdown(
+                f'<div class="rank-row"><span class="rank-num">{i}</span>'
+                f'<span class="rank-name">{row.District}</span>'
+                f'<span class="rank-ntu">{row.NTU:.1f} NTU</span>'
+                f'<span class="rank-risk" style="background:{cls["color"]}">{cls["label"]}</span></div>',
+                unsafe_allow_html=True,
+            )
 
-if col_right is not None:
-    with col_right:
-        render_map_legend()
+    # --- Ranked station list ---
+    st.markdown(f"#### {T['stations_heading']}")
+    for _, r in station_now.iterrows():
+        cls = style.classify(r["Predicted_NTU"])
+        st.markdown(
+            f'<div class="risk-row-wrap"><div class="risk-row"><span>{r["Code"]}</span>'
+            f'<span class="risk-pill" style="background:{cls["color"]}">{r["Predicted_NTU"]:.1f} NTU &middot; {cls["label"]}</span></div>'
+            f'<div class="risk-location">{station_geo.get(r["Code"], "")}</div></div>',
+            unsafe_allow_html=True,
+        )

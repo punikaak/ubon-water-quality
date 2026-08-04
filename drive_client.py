@@ -19,12 +19,32 @@ import io
 import json
 import os
 
-import ee.oauth as oauth
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 DRIVE_FOLDER_NAME = "GEE_Ubon_Turbidity"
+
+# Earth Engine's own public installed-app OAuth identifiers. Hard-coded rather
+# than read from ee.oauth because earthengine-api is a LOCAL-only dependency
+# (see requirements-dev.txt) - importing it at module scope crashed the
+# deployed app, for which Drive is the only composite source. These are not
+# secrets: they ship inside the public earthengine-api package. Any real
+# secrets.toml overrides them anyway (see _load_credentials_dict).
+EE_CLIENT_ID = ("517222506229-vsmmajv00ul0bs7p89v5m89qs8eb9359"
+                ".apps.googleusercontent.com")
+EE_CLIENT_SECRET = "RUP0RZ6e0pPhDzsqIJ7KlNd1"
+
+
+def _ee_oauth_defaults() -> tuple[str, str]:
+    """Prefer the values the installed earthengine-api reports, so a future
+    rotation upstream is picked up locally; fall back to the constants above
+    where that package isn't installed (i.e. the deployed app)."""
+    try:
+        import ee.oauth as oauth
+        return oauth.CLIENT_ID, oauth.CLIENT_SECRET
+    except Exception:
+        return EE_CLIENT_ID, EE_CLIENT_SECRET
 
 
 def _load_credentials_dict() -> dict:
@@ -49,11 +69,12 @@ def _load_credentials_dict() -> dict:
 
 def get_drive_service():
     d = _load_credentials_dict()
+    default_id, default_secret = _ee_oauth_defaults()
     creds = Credentials(
         token=None,
         refresh_token=d["refresh_token"],
-        client_id=d.get("client_id", oauth.CLIENT_ID),
-        client_secret=d.get("client_secret", oauth.CLIENT_SECRET),
+        client_id=d.get("client_id") or default_id,
+        client_secret=d.get("client_secret") or default_secret,
         token_uri="https://oauth2.googleapis.com/token",
         scopes=d["scopes"] if isinstance(d["scopes"], list) else list(d["scopes"]),
     )

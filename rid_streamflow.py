@@ -1,90 +1,122 @@
-"""Streamflow/water level data for the RID Lower NE Hydro Center (hydro-4.rid.go.th).
+"""Streamflow / water level for the RID Lower NE Hydro Center (hydro-4.rid.go.th).
 
-Live source: https://hyd-app-db.rid.go.th (UtokID=4 = Lower Northeastern Region),
-the same API that backs http://hydro-4.rid.go.th's "water level at 06:00" page.
-As of this writing the service accepts the request (HTTP 200) but returns an
-empty/null body for every payload encoding tried (plain JSON, bracket-form,
-dot-form) - it likely needs a session/token nuance not visible from outside
-the page's own JS. fetch_daily_streamflow() is kept as a best-effort live
-attempt.
+Source: https://hyd-app-db.rid.go.th - the service backing hydro-4's daily
+water level pages, reached through its HDService.svc JSON API.
 
-Note: Sentinel2_Ready_Train_With_Streamflow.csv (the only "streamflow" data
-already in this project) covers Nakhon Phanom / Sakon Nakhon / Bueng Kan /
-Nong Khai stations on the upper Mekong tributaries - a different river system
-from the Mun River / Ubon Ratchathani stations this dashboard covers. It is
-NOT a valid offline fallback here, so none is used: if the live call fails,
-get_streamflow() reports that honestly instead of substituting unrelated data.
+Two things about this API are worth knowing before changing anything here:
+
+1. The `getDailyWaterLevelListReport*.ashx` endpoints the public page appears
+   to use return a literal `null` body for every payload encoding tried
+   (plain, bracket-form, dot-form), with or without a warmed-up session. They
+   are not usable from outside the page. `HDService.svc` *is*.
+
+2. `HDService.svc` identifies stations by an internal numeric id, not by the
+   public "M.7"-style gauge code - passing the gauge code returns an
+   all-null record. The ids below were found by probing
+   getStationFromStationID over a numeric range and reading back the
+   stationcode of each hit.
+
+`GetDailyStageReportChartFromStationID6Months` returns one row per day for
+the six months ending at the requested date, which is what makes a fixed
+historical window (e.g. Nov-Dec 2024) retrievable at all.
+
+Each row's `hvalues` is [measured, ref, ref]: index 0 is the level actually
+recorded that day, and the other two are the 2541/2554 flood comparison
+series the page overlays (see GetDailyWaterLevelChartsType, whose type names
+are those Buddhist years). Only index 0 is real observed data.
+
+`qvalues` (discharge, m^3/s) is present in the schema but comes back null
+for these gauges, so what this module can honestly report is stage/water
+level in metres, not a discharge rate.
 """
 import datetime as dt
 
 import requests
 
-API_URL = "https://hyd-app-db.rid.go.th/webservice/getDailyWaterLevelListReportAD.ashx?option=2"
 PAGE_URL = "https://hyd-app-db.rid.go.th/hydro4d_admsl.html"
-UTOK_ID = 4  # Lower Northeastern Region Hydrological Irrigation Center
+HDSERVICE = "https://hyd-app-db.rid.go.th/webservice/HDService.svc/"
 
-# RID gauge codes on the Mun River system near the Ubon PCD stations
-STATIONS_OF_INTEREST = {
-    "M.7": "Mun River, Warin Chamrap, Ubon Ratchathani",
-    "M.9": "Huai Samran, Mueang, Si Sa Ket",
-    "M.11B": "Mun River, Phibun Mangsahan, Ubon Ratchathani",
-    "M.32": "Lam Se Bai, Pa Tio, Yasothon",
+# Internal numeric StationIDs (see note 2 above) for the Mun River system
+# gauges nearest the Ubon PCD water-quality stations.
+MUN_STATIONS = {
+    "M.7": {"id": 279, "name": "Mun River, Warin Chamrap, Ubon Ratchathani"},
+    "M.11B": {"id": 281, "name": "Mun River, Phibun Mangsahan, Ubon Ratchathani"},
+    "M.9": {"id": 280, "name": "Huai Samran, Mueang, Si Sa Ket"},
 }
 
 
 def _thai_date(date: dt.date) -> str:
+    """DD/MM/YYYY in the Buddhist era, which is what the API expects."""
     return f"{date.day:02d}/{date.month:02d}/{date.year + 543}"
 
 
-def fetch_daily_streamflow(date: dt.date | None = None, timeout: float = 8.0) -> dict:
-    """Best-effort live fetch. Returns {} if the RID service gives nothing usable."""
-    date = date or dt.date.today()
-    date_str = _thai_date(date)
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({"User-Agent": "Mozilla/5.0", "Referer": PAGE_URL})
     try:
-        session = requests.Session()
-        session.get(PAGE_URL, timeout=timeout)
-        resp = session.post(
-            API_URL,
-            data={"DW[UtokID]": str(UTOK_ID), "DW[TimeCurrent]": date_str},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception:
-        return {}
+        s.get(PAGE_URL, timeout=15)
+    except requests.RequestException:
+        pass  # the warm-up is best-effort; the API works without it
+    return s
 
-    if not isinstance(data, dict):
-        return {}
 
-    rows = data.get("rows") or []
+def _parse_dotnet_date(raw: str) -> dt.date:
+    """"/Date(1735599600000+0700)/" -> date, in the +07 offset the API sends."""
+    ms = int(raw[6:].split("+")[0].split(")")[0])
+    return (dt.datetime(1970, 1, 1) + dt.timedelta(milliseconds=ms, hours=7)).date()
+
+
+def fetch_level_history(end_date: dt.date, timeout: float = 30.0) -> dict:
+    """{gauge_code: [(date, level_m), ...]} for the 6 months ending `end_date`.
+
+    Returns {} if the service is unreachable or returns nothing usable -
+    callers should treat an empty result as "no data", not as zero.
+    """
+    session = _session()
+    payload_date = _thai_date(end_date)
     out = {}
-    for row in rows:
-        code = row.get("stationcode")
-        if code not in STATIONS_OF_INTEREST:
+    for code, meta in MUN_STATIONS.items():
+        try:
+            resp = session.post(
+                HDSERVICE + "GetDailyStageReportChartFromStationID6Months",
+                json={"hydro": {"StationID": str(meta["id"]), "TimeCurrent": payload_date}},
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            rows = resp.json()
+        except (requests.RequestException, ValueError):
             continue
-        q1 = str(row.get("waterlevelvalueQ1", ""))
-        parts = q1.split("|")
-        out[code] = {
-            "name": STATIONS_OF_INTEREST[code],
-            "waterlevel_m": _safe_float(parts[0]) if len(parts) > 0 else None,
-            "discharge_cms": _safe_float(parts[1]) if len(parts) > 1 else None,
-            "capacity_percent": row.get("capacitypercent"),
-            "status": row.get("wlstatus"),
-            "source": "live",
-        }
+        if not isinstance(rows, list):
+            continue
+
+        series = []
+        for row in rows:
+            values = row.get("hvalues") or []
+            if not values or values[0] is None:
+                continue
+            try:
+                series.append((_parse_dotnet_date(str(row.get("time", ""))), float(values[0])))
+            except (ValueError, IndexError):
+                continue
+        if series:
+            out[code] = sorted(series)
     return out
 
 
-def get_streamflow(rid_gauge_code: str | None = None, date: dt.date | None = None) -> dict:
-    """Live RID reading if available; otherwise reports unavailable (no substitute data exists)."""
-    live = fetch_daily_streamflow(date=date)
-    if live:
-        return {"source": "live", "stations": live}
-    return {"source": "unavailable", "stations": {}}
+def level_history_between(start: dt.date, end: dt.date, timeout: float = 30.0) -> dict:
+    """{gauge_code: [(date, level_m), ...]} restricted to [start, end].
+
+    One call per gauge covers six months back from `end`, so any window
+    shorter than that (which is the point of this function) needs no paging.
+    """
+    history = fetch_level_history(end, timeout=timeout)
+    return {
+        code: [(d, v) for d, v in series if start <= d <= end]
+        for code, series in history.items()
+        if any(start <= d <= end for d, _ in series)
+    }
 
 
-def _safe_float(s: str):
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return None
+def station_name(code: str) -> str:
+    return MUN_STATIONS.get(code, {}).get("name", code)
