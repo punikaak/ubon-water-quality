@@ -40,11 +40,17 @@ git config user.email "you@example.com"
 
 1. Go to [share.streamlit.io](https://share.streamlit.io), sign in with GitHub.
 2. "New app" → pick this repo → main file `dashboard.py`.
-3. Before or after first deploy, open **Settings → Secrets** and paste the
-   contents of `.streamlit/secrets.toml.example` with real values filled in
-   (see that file for where to get them). This is what lets the deployed
-   app read satellite composites from Google Drive, since it has no local
-   disk of its own.
+3. Before or after first deploy, open **Settings → Secrets** and paste in
+   the Google credentials that let the app read satellite composites from
+   Drive (it has no local disk of its own). Generate them with:
+
+   ```bash
+   python make_secrets.py     # writes .streamlit/secrets.toml, gitignored
+   ```
+
+   Then open that file and copy all of it into the Secrets box. Never commit
+   it - the refresh token grants Drive access to your Google account until
+   revoked at https://myaccount.google.com/permissions.
 
 ### 3. Keep it refreshed weekly
 
@@ -103,4 +109,5 @@ billing requirement, so that's the storage backend for now
 - `rid_streamflow.py` - RID streamflow API (best-effort; see module docstring for its limitations)
 - `refresh_ubon_data.py` / `backfill_ubon_weekly.py` - GEE export + Drive upload/download scripts
 - `precompute_history.py` - writes `ubon_history.json`, the sidebar trend cache (see step 4)
+- `make_secrets.py` - renders local Google credentials into the Streamlit Cloud secrets block
 - `requirements.txt` - deployed-app dependencies; `requirements-dev.txt` adds what the refresh scripts need
