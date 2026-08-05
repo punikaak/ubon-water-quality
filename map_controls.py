@@ -166,6 +166,29 @@ _CSS = """
 .wq-legend-heading:first-child { margin-top:0; }
 .wq-legend-caption { font-size:0.7rem; color:#8a95a3; margin-top:6px; line-height:1.35; }
 .wq-legend-range { color:#8a95a3; font-size:0.72rem; }
+
+/* ------------------------------------------------------------- phones ---
+   This stylesheet lives inside the map iframe, so it needs its own media
+   query - the page's one (see dashboard.py) cannot reach in here. At 390px
+   the rail ran 281px down the screen and the zoom control ended up buried
+   under the timeline bar, which is much taller on a phone. Panels are also
+   pinned to both edges rather than a fixed 230px, which would otherwise
+   leave them wider than the gap they open into. */
+@media (max-width: 640px) {
+  .wq-rail { top:58px; right:8px; padding:5px 3px; gap:3px; }
+  .wq-icon-btn { width:31px; }
+  .wq-icon-circle { width:21px; height:21px; }
+  .wq-icon-circle svg { width:11px; height:11px; }
+  .wq-icon-label { font-size:0.47rem; }
+  .wq-panel { top:58px; right:46px; left:8px; width:auto; max-height:52vh; padding:11px; }
+  .wq-row { font-size:0.78rem; padding:6px 5px; }
+  .wq-legend-item { font-size:0.76rem; }
+  /* Sits above the sidebar button (page-side, bottom:126px), which in turn
+     sits above the two-row timeline bar. Offsets are larger than the page's
+     because this anchors to the iframe's own viewport, which starts ~32px
+     down the page and runs past its bottom edge. */
+  .leaflet-bottom.leaflet-left { bottom:212px !important; left:10px !important; }
+}
 </style>
 """
 
@@ -319,12 +342,39 @@ def add_view_persistence(fmap, default_bounds):
     (function () {{
         var map = {map_var};
         var STORAGE_KEY = 'wq_map_view';
+
+        /* st_folium renders the map into a fixed 1400px-tall container (see
+           the height= argument at the call site) while CSS clips the iframe
+           to the real viewport. Leaflet then centres on the *container's*
+           middle - 700px down - which on an 844px phone is below the fold,
+           so the province sat off the bottom edge of the screen with Laos
+           filling the visible half. Matching the container to the iframe's
+           own viewport puts Leaflet's centre back where the user's centre
+           is. Re-run on resize/orientation change, since a phone rotation
+           changes it and an unresized container reintroduces the offset. */
+        function syncHeight() {{
+            var el = map.getContainer();
+            var h = window.innerHeight;
+            if (h > 0 && Math.abs(el.clientHeight - h) > 2) {{
+                el.style.height = h + 'px';
+                map.invalidateSize({{animate: false}});
+                return true;
+            }}
+            return false;
+        }}
+        syncHeight();
+        window.addEventListener('resize', syncHeight);
+        window.addEventListener('orientationchange', function () {{
+            setTimeout(syncHeight, 250);
+        }});
+
         var saved = null;
         try {{ saved = JSON.parse(localStorage.getItem(STORAGE_KEY)); }} catch (e) {{}}
         if (saved && typeof saved.lat === 'number') {{
             map.setView([saved.lat, saved.lng], saved.zoom, {{animate: false}});
         }} else {{
             setTimeout(function () {{
+                syncHeight();
                 map.invalidateSize();
                 map.fitBounds({json.dumps(default_bounds)}, {{padding: [20, 20]}});
             }}, 200);

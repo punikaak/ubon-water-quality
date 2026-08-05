@@ -2,7 +2,16 @@
 # geo_boundary, map_controls, province_composite, turbidity_model,
 # turbidity_style). Loose lower-bound pins rather than exact versions since
 # Streamlit Community Cloud's Python runtime may differ from local dev.
-streamlit>=1.40
+# Pinned as a pair, not floored. Streamlit declares only `starlette<2,>=0.40.0`,
+# which spans versions whose GZipResponder.__init__ takes a different number of
+# positional arguments than Streamlit passes it. The cloud resolved one of those
+# and every page load died with
+#   TypeError: GZipResponder.__init__() missing 1 required positional argument
+# before any app code ran. Local dev never saw it because pip had already
+# resolved a working pair. These two versions are that verified pair - change
+# them together, and re-check the deployed app afterwards.
+streamlit==1.60.0
+starlette==1.3.1
 streamlit-folium>=0.24
 folium>=0.19
 altair>=5.0

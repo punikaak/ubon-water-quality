@@ -472,6 +472,96 @@ st.markdown(
     .rank-ntu {{ font-weight:700; }}
     .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
         font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
+
+    /* ---------------------------------------------------------- phones ---
+       Everything above is sized for a desktop viewport. On a ~390px screen
+       the same layout collapses: the title wraps to two lines, and the
+       timeline bar grows to 290px - a third of the screen - because
+       Streamlit stamps min-width:calc(100% - 24px) on every column below its
+       own breakpoint, so all four timeline columns stack into their own
+       rows. The bar then covers the map's zoom control and the sidebar
+       button, which sit at fixed offsets from the bottom.
+       640px matches where Streamlit's own column stacking kicks in. */
+    @media (max-width: 640px) {{
+      /* dvh, not vh: mobile browsers count the collapsing URL bar inside
+         100vh, so a vh-sized map is taller than the visible area and the
+         bottom-anchored timeline sits off-screen until you scroll. Declared
+         after the vh rules so browsers without dvh keep the old value. */
+      .block-container {{ height: 100dvh; }}
+      iframe[title="streamlit_folium.st_folium"] {{ height: calc(100dvh - 4px) !important; }}
+
+      /* Title and subtitle stack instead of sharing a baseline - side by
+         side they wrapped mid-phrase ("Mekong Water / Quality - Thailand"). */
+      .page-header {{ top:8px; left:8px; right:8px; padding:7px 11px;
+          flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:1px; }}
+      .page-title {{ font-size:0.82rem; line-height:1.2; }}
+      .page-subtitle {{ font-size:0.6rem; line-height:1.25; }}
+
+      .st-key-timeline_bar {{ left:8px; right:8px; bottom:8px; padding:16px 10px 5px 10px; }}
+      /* Undo that forced min-width so the columns can share rows again, then
+         reorder into two: the slider alone on top (it needs the full width
+         to be draggable), and calendar / arrows / language beneath it. */
+      .st-key-timeline_bar div[data-testid="stHorizontalBlock"] {{
+          flex-wrap:wrap !important; align-items:center !important;
+          gap:0 !important; row-gap:2px !important; }}
+      .st-key-timeline_bar div[data-testid="stColumn"] {{
+          min-width:0 !important; flex:0 0 auto !important; width:auto !important;
+          margin-right:0 !important; }}
+      /* margin-right above is not redundant with the gap rules: alongside
+         that min-width, Streamlit gives each column a ~34px right margin at
+         this size. Inside the two nested column pairs that meant the prev/
+         next arrows needed 102px of a 68px column and the EN/TH pair 114px
+         of 76px, so both wrapped - which is why the language switch showed
+         as EN stacked above TH rather than as a single pill. */
+      .st-key-date_nav div[data-testid="stHorizontalBlock"],
+      .st-key-lang_toggle div[data-testid="stHorizontalBlock"] {{
+          flex-wrap:nowrap !important; }}
+      /* Written with the child combinator, and kept below the :nth-child
+         rules further down, because those match on position alone - and the
+         arrow pair and the EN/TH pair are *themselves* columns nested inside
+         columns 3 and 4. Without this, prev/next and EN/TH each inherited
+         the outer row's order:2 / order:1 and rendered swapped, and the
+         nth-child(1) auto-margin stretched TH to 70px of a 76px pill so EN
+         overflowed outside it. The extra attribute selector also lifts
+         specificity above those rules, which a flat selector could not. */
+      .st-key-date_nav div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+      .st-key-lang_toggle div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {{
+          order:0 !important; flex:1 1 50% !important; width:auto !important;
+          margin:0 !important; min-width:0 !important; }}
+      .st-key-timeline_bar div[data-testid="stColumn"]:nth-child(2) {{
+          order:1; flex:0 0 100% !important; width:100% !important; }}
+      /* auto, and !important, because the blanket margin-right:0 above would
+         otherwise win and leave the calendar, arrows and language switch all
+         bunched against the left edge. This is the spacer that pushes the
+         arrows and language switch over to the right. */
+      .st-key-timeline_bar div[data-testid="stColumn"]:nth-child(1) {{
+          order:2; margin-right:auto !important; }}
+      .st-key-timeline_bar div[data-testid="stColumn"]:nth-child(3) {{ order:3; }}
+      .st-key-timeline_bar div[data-testid="stColumn"]:nth-child(4) {{ order:4; }}
+
+      /* Nine dates across ~330px render as one unbroken string
+         ("01 Nov08 Nov15 Nov..."). Every other label is dropped - the ticks
+         are evenly spaced, so the survivors still line up with the track,
+         and the exact selected date is spelled out above the thumb anyway. */
+      .wq-tick-label:nth-child(even) {{ display:none; }}
+      .wq-tick-label {{ font-size:0.62rem; }}
+      .wq-tick-row {{ margin-top:-30px; padding:0 4px; }}
+
+      .wq-cal {{ padding-top:0; }}
+      .wq-cal svg {{ width:18px; height:18px; }}
+      .wq-cal-year {{ font-size:0.54rem; }}
+      .st-key-date_nav button {{ height:34px !important; min-height:34px !important;
+          width:34px !important; background-size:23px 23px !important; }}
+      .st-key-lang_toggle {{ width:76px; padding:3px; }}
+      .st-key-lang_toggle button {{ height:26px !important; min-height:26px !important;
+          font-size:0.66rem !important; }}
+
+      /* Both sidebar states share one position on a phone: the sidebar
+         overlays the map rather than shrinking it, so there is no second
+         layout to offset against. Raised to clear the two-row timeline. */
+      [data-testid="stSidebarCollapseButton"],
+      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:140px !important; }}
+    }}
     </style>
     """,
     unsafe_allow_html=True,
