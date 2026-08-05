@@ -104,6 +104,7 @@ BASEMAP_DESCRIPTIONS = {
 
 _CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
 /* position:fixed (not absolute): st_folium renders the map container at a
    tall fixed pixel height (see the height= comment at the call site), while
    the CSS on the outer <iframe> clips it to the actual viewport - anchoring
@@ -116,7 +117,7 @@ _CSS = """
 .wq-rail { position:fixed; top:75px; right:16px; z-index:1000;
     display:flex; flex-direction:column; align-items:center; gap:6px; background:#fff;
     border-radius:999px; box-shadow:0 2px 14px rgba(0,0,0,0.22); padding:8px 4px;
-    font-family:'Poppins',sans-serif; }
+    font-family:__WQ_FONT__; }
 .wq-icon-btn { display:flex; flex-direction:column; align-items:center; gap:2px; width:38px;
     border:none; background:none; padding:0; cursor:pointer; }
 .wq-icon-circle { width:24px; height:24px; border-radius:50%; display:flex; align-items:center;
@@ -128,7 +129,7 @@ _CSS = """
 .wq-icon-btn:not(.wq-on) .wq-icon-label { color:#a9b1ba; }
 .wq-panel { position:fixed; top:75px; right:60px; z-index:1000;
     width:230px; background:#fff; border-radius:12px; box-shadow:0 2px 14px rgba(0,0,0,0.2);
-    padding:14px; display:none; font-family:'Poppins',sans-serif; max-height:70vh; overflow-y:auto; }
+    padding:14px; display:none; font-family:__WQ_FONT__; max-height:70vh; overflow-y:auto; }
 /* Leaflet's own zoom control, top of the bottom-left stack. The other two
    controls in that stack (timeline bar, ranking button) live in the outer
    page, not this iframe, so the offsets are coordinated by hand and were
@@ -145,7 +146,7 @@ _CSS = """
 .leaflet-bottom.leaflet-left { position:fixed !important; bottom:190px !important; left:16px !important; }
 .leaflet-control-zoom { border-radius:12px !important; overflow:hidden;
     box-shadow:0 2px 14px rgba(0,0,0,0.22) !important; border:none !important; }
-.leaflet-control-zoom a { font-family:'Poppins',sans-serif !important; }
+.leaflet-control-zoom a { font-family:__WQ_FONT__ !important; }
 /* The OSM credit stays - ODbL requires attribution - but it does not need to
    be a full-contrast bar competing with the data, so it is toned down.
    position:fixed for the same reason as the zoom corner above: Leaflet
@@ -156,7 +157,7 @@ _CSS = """
    actually visible; the offset lifts it clear of the timeline bar. */
 .leaflet-bottom.leaflet-right { position:fixed !important;
     bottom:132px !important; right:0 !important; }
-.leaflet-control-attribution { font-family:'Poppins',sans-serif !important;
+.leaflet-control-attribution { font-family:__WQ_FONT__ !important;
     font-size:9px !important; background:rgba(255,255,255,0.55) !important;
     padding:1px 6px !important; border-radius:6px 0 0 6px !important;
     color:#7b8794 !important; }
@@ -274,7 +275,8 @@ def _overlay_button(key, label, default_on, title=""):
 
 
 def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_html,
-                    legend_label="Legend", basemap_label="Base Map"):
+                    legend_label="Legend", basemap_label="Base Map",
+                    font_stack="'Poppins', 'Noto Sans Thai', sans-serif"):
     """Attach the pill-shaped icon rail (top-right) to a folium map.
 
     basemap_layers: {display_name: folium.TileLayer}, already added to fmap.
@@ -286,9 +288,14 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         built by the caller, which owns the actual style constants).
     legend_label/basemap_label: current-language labels for those two rail
         buttons (overlay_defs already carries its own labels per-entry).
+    font_stack: CSS font-family for this iframe's own chrome. Passed in
+        because the caller owns the language, and the stack is ordered by it -
+        this stylesheet lives inside the map iframe and inherits nothing from
+        the page. Substituted rather than formatted: the CSS below is full of
+        literal braces that str.format would choke on.
     """
     rail_html = (
-        _CSS
+        _CSS.replace("__WQ_FONT__", font_stack)
         + '<div class="wq-rail">'
         + f'<button class="wq-icon-btn wq-on" data-wq-toggle="legend" style="--wq-color:{_LEGEND_COLOR}">'
         + f'<span class="wq-icon-circle">{_LEGEND_ICON}</span><span class="wq-icon-label">{legend_label}</span></button>'

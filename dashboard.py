@@ -158,10 +158,10 @@ TRANSLATIONS = {
         "legend_turbidity_levels": "ระดับความขุ่น",
         "legend_province": "ขอบเขตจังหวัด",
         "legend_district": "ขอบเขตอำเภอ",
-        "legend_pcd_stations": "สถานี คพ.",
+        "legend_pcd_stations": "สถานีคุณภาพน้ำ",
         "legend_caption": "ค่าอ้างอิงทั่วไปสำหรับแดชบอร์ดนี้ ไม่ใช่มาตรฐานทางการของกรมควบคุมมลพิษ",
         "legend_label": "คำอธิบาย",
-        "pcd_stations_label": "สถานี คพ.",
+        "pcd_stations_label": "สถานีคุณภาพน้ำ",
         "province_label": "จังหวัด",
         "district_label": "อำเภอ",
         "turbidity_label": "ความขุ่น",
@@ -207,6 +207,16 @@ if "lang" not in st.session_state:
     st.session_state.lang = "en"
 LANG = st.session_state.lang
 T = TRANSLATIONS[LANG]
+
+# Whichever font is listed first wins for the characters it covers, and the
+# other only fills the gaps. Poppins has no Thai block, so on the English UI
+# it renders the Latin text and Noto Sans Thai quietly handles any Thai that
+# appears (place names, mostly). Putting Noto Sans Thai first for the Thai UI
+# makes it set the whole interface - including the digits and Latin fragments
+# like "NTU" and "M.7" - so the page reads as one typeface rather than two
+# mixed mid-sentence.
+FONT_STACK = ("'Noto Sans Thai', 'Poppins', sans-serif" if LANG == "th"
+              else "'Poppins', 'Noto Sans Thai', sans-serif")
 
 
 def scale_icon_data_uri():
@@ -262,7 +272,17 @@ st.markdown(
     f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
-    html, body, [class*="css"]  {{ font-family: 'Poppins', 'Noto Sans Thai', sans-serif; }}
+    html, body, [class*="css"]  {{ font-family: {FONT_STACK}; }}
+    /* Streamlit sets font-family directly on headings, widget labels and
+       markdown blocks, which beats inheriting from body - so the Thai UI kept
+       rendering those in Source Sans while everything else switched. This
+       overrides them all in one go.
+       The :not() matters: Streamlit draws its icons as ligatures in a
+       Material Symbols font, and repainting that element with a text font
+       turns each icon into its literal name ("keyboard_double_arrow_left").
+       Excluding the icon span leaves those alone. Our own map icons are
+       inline SVG and unaffected either way. */
+    .stApp :not([data-testid="stIconMaterial"]) {{ font-family: {FONT_STACK} !important; }}
     #MainMenu, footer {{visibility: hidden;}}
     /* Header is collapsed to nothing rather than display:none, so it stops
        taking up space but Streamlit's "Running..." status widget can still
@@ -905,17 +925,17 @@ center_lat = station_summary["station_la"].mean()
 center_lon = station_summary["station_lo"].mean()
 fmap = folium.Map(location=[center_lat, center_lon], zoom_start=8, tiles=None, zoom_control=False)
 fmap.get_root().header.add_child(folium.Element(
-    """
+    f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap');
-    .leaflet-popup-content, .leaflet-tooltip {
-        font-family: 'Poppins', 'Noto Sans Thai', sans-serif !important;
-    }
+    .leaflet-popup-content, .leaflet-tooltip {{
+        font-family: {FONT_STACK} !important;
+    }}
     /* No focus ring on click - was showing as a black box around whatever
        shape (often a huge invisible province polygon) took the click. */
-    .leaflet-container *:focus, .leaflet-container *:focus-visible {
+    .leaflet-container *:focus, .leaflet-container *:focus-visible {{
         outline: none !important;
-    }
+    }}
     </style>
     """
 ))
@@ -1012,6 +1032,7 @@ overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_
 map_controls.add_layer_rail(
     fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
+    font_stack=FONT_STACK,
 )
 map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
 map_controls.add_zoom_control(fmap)
