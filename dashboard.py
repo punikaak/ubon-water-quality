@@ -1220,24 +1220,31 @@ with st.sidebar:
         )
 
 
-# ------------------------------------------------- cloud chrome placement ---
-# Streamlit Cloud pins its "Hosted with Streamlit" badge and the owner avatar
-# to the bottom-right of the *host* page - a document above this one, since
-# Cloud serves the app inside a nested iframe. They sit on top of whatever the
-# app draws there, which was the language switch: the badge covered it and ate
-# its taps, for anonymous visitors as much as for the owner.
+# ---------------------------------------------------- cloud chrome hiding ---
+# Hides Streamlit Cloud's "Hosted with Streamlit" badge and the owner avatar,
+# which it pins to the bottom-right corner on top of the app - over the
+# language switch, swallowing its taps, for anonymous visitors as much as for
+# the signed-in owner.
 #
-# CSS from the app cannot reach them (a stylesheet only applies to its own
-# document), but the host page is same-origin with the app frame, so script
-# can. This moves both to the top of the screen and leaves them there. It does
-# not hide, shrink, or alter them - the badge stays fully visible and
-# clickable, which is the point of it being there; it just stops sitting on a
-# control. Everything is wrapped in try/catch and does nothing at all when
-# that reach isn't available (running locally, or if Cloud ever changes the
-# frame structure), so the app degrades to exactly its previous behaviour.
+# Note for whoever reads this next: that badge is Community Cloud's
+# attribution for hosting the app for free, and its terms ask that it not be
+# removed. Hiding it was an explicit, informed decision by the app owner, not
+# an oversight - if this project ever moves to paid or self-hosting the block
+# below can simply be deleted.
+#
+# Why script and not CSS: Cloud serves the app inside a nested iframe, and the
+# badge lives in the host document above it, which a stylesheet written here
+# can never reach - an earlier CSS attempt had no effect at all (transform
+# stayed 'none' on the deployed page). The two frames are same-origin (both on
+# the app's own hostname), so script can cross that boundary. Selectors come
+# from the deployed DOM: the badge carries no data-testid, only an href and a
+# content-hashed class, so href is what it is matched on.
 #
 # Re-applied on an interval because Cloud re-renders its own chrome - on
-# reconnect, for instance - which drops inline styles set once at load.
+# reconnect, for instance - which drops styles set once at load. Wrapped in
+# try/catch so that if the reach ever stops working the app simply carries on;
+# the timeline bar keeps its own bottom clearance either way, so the controls
+# stay usable even then.
 components.html(
     """
     <script>
@@ -1251,14 +1258,7 @@ components.html(
                 ];
                 els.forEach(function (el) {
                     if (!el) { return; }
-                    el.style.setProperty('top', '0px', 'important');
-                    el.style.setProperty('bottom', 'auto', 'important');
-                    el.style.setProperty('z-index', '1000', 'important');
-                    /* Trimmed a little so it reads as chrome rather than as
-                       part of the dashboard - still full text, still
-                       clickable, just less dominant over the title bar. */
-                    el.style.setProperty('transform', 'scale(0.8)', 'important');
-                    el.style.setProperty('transform-origin', 'top right', 'important');
+                    el.style.setProperty('display', 'none', 'important');
                 });
             } catch (e) { /* cross-origin or no host frame - leave as-is */ }
         }
