@@ -262,8 +262,14 @@ st.markdown(
        anchored to what's actually visible. */
     .block-container {{ padding: 0; max-width: 100%; position: relative;
         height: 100vh; overflow: hidden; }}
+    /* width:100% - streamlit_folium sizes the iframe from the full page
+       width, ignoring the sidebar, so on desktop it was 1680px wide starting
+       at x=300 and overflowed the viewport by exactly the sidebar's 300px.
+       That rendered the map's right-hand 300px off-screen and took the
+       bottom-right OSM credit with it. Constraining it to its actual
+       container fixes both. */
     iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh - 4px) !important;
-        min-height: 380px; display: block; }}
+        width: 100% !important; min-height: 380px; display: block; }}
 
     html, body, .stApp {{ background: {P['app_bg']}; }}
     [data-testid="stSidebar"] {{ background: {P['sidebar_bg']}; }}
@@ -473,6 +479,21 @@ st.markdown(
     .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
         font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
 
+    /* Streamlit Cloud's own chrome - the "Hosted with Streamlit" badge and
+       the owner avatar - injected into the page alongside the app, both
+       position:fixed in the bottom-right corner where they landed on top of
+       the timeline bar.
+       Scaled down rather than hidden: the badge is the condition of the free
+       hosting tier, and the avatar is only rendered for the signed-in owner
+       anyway (visitors never see it). Matched on href because the class
+       names are content-hashed (_viewerBadge_aycw8_23) and change whenever
+       Cloud ships a release, whereas these URLs have been stable.
+       transform-origin keeps them pinned to the corner as they shrink. */
+    a[href^="https://streamlit.io/cloud"] {{
+        transform: scale(0.6); transform-origin: bottom right; opacity: 0.8; }}
+    a[href^="https://share.streamlit.io/user/"] {{
+        transform: scale(0.7); transform-origin: bottom right; opacity: 0.8; }}
+
     /* ---------------------------------------------------------- phones ---
        Everything above is sized for a desktop viewport. On a ~390px screen
        the same layout collapses: the title wraps to two lines, and the
@@ -497,7 +518,11 @@ st.markdown(
       .page-title {{ font-size:0.82rem; line-height:1.2; }}
       .page-subtitle {{ font-size:0.6rem; line-height:1.25; }}
 
-      .st-key-timeline_bar {{ left:8px; right:8px; bottom:8px; padding:16px 10px 5px 10px; }}
+      /* bottom:36, not 8: the Cloud badge is pinned to the very corner and
+         even scaled down occupies the bottom ~28px, which otherwise covered
+         the language switch and swallowed taps meant for it. The whole
+         bottom-left stack below is offset to match. */
+      .st-key-timeline_bar {{ left:8px; right:8px; bottom:36px; padding:16px 10px 5px 10px; }}
       /* Undo that forced min-width so the columns can share rows again, then
          reorder into two: the slider alone on top (it needs the full width
          to be draggable), and calendar / arrows / language beneath it. */
@@ -560,7 +585,7 @@ st.markdown(
          overlays the map rather than shrinking it, so there is no second
          layout to offset against. Raised to clear the two-row timeline. */
       [data-testid="stSidebarCollapseButton"],
-      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:140px !important; }}
+      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:168px !important; }}
     }}
     </style>
     """,

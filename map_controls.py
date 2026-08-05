@@ -202,9 +202,10 @@ _CSS = """
      sits above the two-row timeline bar. Offsets are larger than the page's
      because this anchors to the iframe's own viewport, which starts ~32px
      down the page and runs past its bottom edge. */
-  .leaflet-bottom.leaflet-left { bottom:212px !important; left:10px !important; }
-  /* Taller timeline bar here (two rows), so the credit needs lifting further. */
-  .leaflet-bottom.leaflet-right { bottom:158px !important; }
+  .leaflet-bottom.leaflet-left { bottom:240px !important; left:10px !important; }
+  /* Taller timeline bar here (two rows), and the bar itself sits higher to
+     clear the Cloud badge, so the credit needs lifting further still. */
+  .leaflet-bottom.leaflet-right { bottom:192px !important; }
 }
 </style>
 """
@@ -388,12 +389,19 @@ def add_view_persistence(fmap, default_bounds):
         function syncHeight() {{
             var el = map.getContainer();
             var h = window.innerHeight;
+            var changed = false;
             if (h > 0 && Math.abs(el.clientHeight - h) > 2) {{
                 el.style.height = h + 'px';
-                map.invalidateSize({{animate: false}});
-                return true;
+                changed = true;
             }}
-            return false;
+            /* Width too, not just height: the page CSS constrains the iframe
+               to its container, and Leaflet keeps serving tiles for the old
+               wider box until told otherwise. */
+            if (Math.abs(el.clientWidth - window.innerWidth) > 2) {{
+                changed = true;
+            }}
+            if (changed) {{ map.invalidateSize({{animate: false}}); }}
+            return changed;
         }}
         syncHeight();
         window.addEventListener('resize', syncHeight);
