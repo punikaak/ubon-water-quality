@@ -205,6 +205,27 @@ _CSS = """
 .wq-legend-caption { font-size:0.7rem; color:#8a95a3; margin-top:6px; line-height:1.35; }
 .wq-legend-range { color:#8a95a3; font-size:0.72rem; }
 
+/* -------------------------------------------------- station popups ---
+   Leaflet's default popup is a tight 13px box with a small blue close link.
+   These build it out into a card: station code as a heading, then labelled
+   rows. The !importants are unavoidable - leaflet.css sets each of these
+   directly on the same elements. */
+.leaflet-popup-content-wrapper { border-radius:14px !important;
+    box-shadow:0 4px 20px rgba(0,0,0,0.18) !important; padding:2px !important; }
+.leaflet-popup-content { margin:17px 20px !important; font-family:__WQ_FONT__ !important;
+    line-height:1.5 !important; font-size:0.86rem !important; color:#2b2b3a !important; }
+.leaflet-popup-close-button { top:11px !important; right:13px !important;
+    width:22px !important; height:22px !important; font:400 21px/22px Arial,sans-serif !important;
+    color:#9aa3ad !important; }
+.leaflet-popup-close-button:hover { color:#2b2b3a !important; background:none !important; }
+.wq-pop-title { font-size:1.3rem; font-weight:700; color:#12161c; line-height:1.2;
+    /* Room for the close button, which overlaps this line. */
+    padding-right:26px; margin-bottom:13px; }
+.wq-pop-group { margin-top:13px; }
+.wq-pop-group:first-of-type { margin-top:0; }
+.wq-pop-row b { color:#12161c; font-weight:700; }
+.wq-pop-note { margin-top:12px; font-size:0.7rem; color:#9aa3ad; line-height:1.4; }
+
 /* ------------------------------------------------- information button ---
    Bottom-left, one control above the zoom buttons, and part of the same
    hand-coordinated stack as .leaflet-bottom.leaflet-left below - so the same

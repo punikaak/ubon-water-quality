@@ -116,6 +116,32 @@ def station_locations(stations, lang="en"):
     return {code: cache.get(code, {}).get(lang, "") for code, _, _ in stations}
 
 
+def station_location_parts(stations, lang="en"):
+    """{code: {"subdistrict": ..., "district": ..., "province": ...}} - the
+    same reverse-geocoded place as station_locations(), split back into its
+    administrative levels so a caller can label them individually.
+
+    Splitting the joined string rather than storing the parts separately:
+    the on-disk cache holds the joined form (see station_locations), and
+    re-fetching every station to change that shape would cost a Nominatim
+    call per station per language for no new information. The join is ours
+    and uses ", ", which none of the components contain.
+
+    Nominatim yields either two levels (district, province) or three
+    (subdistrict as well), so the parts are read from the right-hand end,
+    where the province always sits.
+    """
+    out = {}
+    for code, joined in station_locations(stations, lang=lang).items():
+        parts = [p.strip() for p in joined.split(",") if p.strip()]
+        out[code] = {
+            "province": parts[-1] if len(parts) >= 1 else "",
+            "district": parts[-2] if len(parts) >= 2 else "",
+            "subdistrict": parts[-3] if len(parts) >= 3 else "",
+        }
+    return out
+
+
 def _require_cache(path, fetch_fn, label):
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:

@@ -153,6 +153,17 @@ TRANSLATIONS = {
         # constants in turbidity_model.py rather than typed out here, so the
         # accuracy figures on screen cannot drift from the model that produced
         # them. ---
+        # --- Station marker popup ---
+        "popup_subdistrict": "Subdistrict",
+        "popup_district": "District",
+        "popup_province": "Province",
+        "popup_predicted": "Predicted Turbidity",
+        "popup_measured": "Measured Turbidity",
+        "popup_level": "Turbidity Level",
+        "popup_note": (
+            "Predicted value is for {date}. Measured value is this station's average "
+            "across the PCD record, not a reading taken that day."
+        ),
         "info_label": "Information",
         "info_data_source": "Data Source",
         "info_src_turbidity": (
@@ -250,6 +261,16 @@ TRANSLATIONS = {
         "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
         "risk": "ความเสี่ยง",
         "window_label": "1 พ.ย. - 31 ธ.ค. 2567",
+        "popup_subdistrict": "ตำบล",
+        "popup_district": "อำเภอ",
+        "popup_province": "จังหวัด",
+        "popup_predicted": "ความขุ่นที่ประเมิน",
+        "popup_measured": "ความขุ่นที่ตรวจวัด",
+        "popup_level": "ระดับความขุ่น",
+        "popup_note": (
+            "ค่าประเมินเป็นของวันที่ {date} ส่วนค่าตรวจวัดเป็นค่าเฉลี่ยของสถานีนี้"
+            "จากข้อมูลกรมควบคุมมลพิษ ไม่ใช่ค่าที่วัดในวันดังกล่าว"
+        ),
         "info_label": "ข้อมูล",
         "info_data_source": "แหล่งที่มาของข้อมูล",
         "info_src_turbidity": (
@@ -1035,9 +1056,12 @@ station_now["Predicted_NTU"] = [
 ]
 station_now = station_now.sort_values("Predicted_NTU", ascending=False)
 
-station_geo = geo.station_locations(
-    [(r.Code, r.station_la, r.station_lo) for r in station_summary.itertuples()], lang=LANG,
-)
+_station_coords = [(r.Code, r.station_la, r.station_lo) for r in station_summary.itertuples()]
+# The joined form for the one-line captions (sidebar, ranking rows), and the
+# split form for the marker popup, which labels each level separately. Both
+# read the same cache, so this is one lookup's worth of work, not two.
+station_geo = geo.station_locations(_station_coords, lang=LANG)
+station_places = geo.station_location_parts(_station_coords, lang=LANG)
 
 # Province-wide mean for the selected composite. Free - this composite's
 # raster is already in memory.
@@ -1086,6 +1110,57 @@ for name, cfg in BASEMAPS.items():
     layer.add_to(fmap)
     basemap_tile_layers[name] = layer
 
+def _drop_admin_word(value, label):
+    """Strip the administrative word from a place name when the row's label
+    already carries it - "District: Mueang Ubon Ratchathani District" reads
+    as a mistake. English puts it last ("... District"), Thai first
+    ("อำเภอ..."), so both ends are checked. Never returns empty: a name that
+    is nothing but the word is left as it was.
+    """
+    v = value.strip()
+    if v.lower().endswith(" " + label.lower()):
+        v = v[: -len(label) - 1].strip()
+    elif v.startswith(label):
+        v = v[len(label):].strip()
+    return v or value.strip()
+
+
+def station_popup_html(code, predicted_ntu, measured_ntu, class_label):
+    """The card shown when a station marker is clicked: station code as the
+    heading, then where it is, then its numbers.
+
+    The note at the foot is what the old inline labels ("Predicted
+    (satellite)", "Measured (PCD avg)") used to carry. Those qualifiers
+    matter - the predicted figure moves with the selected date while the
+    measured one is a fixed average over the whole PCD record - so they moved
+    into a caption rather than being dropped when the labels were shortened.
+    """
+    parts = station_places.get(code, {})
+    levels = (("subdistrict", T["popup_subdistrict"]),
+              ("district", T["popup_district"]),
+              ("province", T["popup_province"]))
+    named = {key: _drop_admin_word(parts.get(key, ""), label) if parts.get(key) else ""
+             for key, label in levels}
+    # A subdistrict often shares its district's name (Khong Chiam sits in
+    # Khong Chiam District). Printing it under both labels tells the reader
+    # nothing, so the broader level is the one kept.
+    if named["subdistrict"] and named["subdistrict"].casefold() == named["district"].casefold():
+        named["subdistrict"] = ""
+    rows = [f'<div class="wq-pop-row"><b>{label}:</b> {named[key]}</div>'
+            for key, label in levels if named[key]]
+    place_block = f'<div class="wq-pop-group">{"".join(rows)}</div>' if rows else ""
+    return (
+        f'<div class="wq-pop-title">{code}</div>'
+        + place_block
+        + '<div class="wq-pop-group">'
+        f'<div class="wq-pop-row"><b>{T["popup_predicted"]}:</b> {predicted_ntu:.1f} NTU</div>'
+        f'<div class="wq-pop-row"><b>{T["popup_measured"]}:</b> {measured_ntu:.1f} NTU</div>'
+        f'<div class="wq-pop-row"><b>{T["popup_level"]}:</b> {class_label}</div>'
+        '</div>'
+        f'<div class="wq-pop-note">{T["popup_note"].format(date=f"{picked_date:%d %b %Y}")}</div>'
+    )
+
+
 station_layer = folium.FeatureGroup(name="Ground Stations", show=True)
 for _, r in station_now.iterrows():
     cls = style.classify(r["Predicted_NTU"])
@@ -1094,10 +1169,10 @@ for _, r in station_now.iterrows():
         radius=8, color=STATION_STROKE_COLOR, weight=1, fill=True,
         fill_color=cls["color"], fill_opacity=0.95,
         popup=folium.Popup(
-            f"<b>{r['Code']}</b><br>{station_geo.get(r['Code'], '')}"
-            f"<br>{T['predicted_satellite']}: {r['Predicted_NTU']:.1f} NTU &middot; {picked_date:%d %b %Y}"
-            f"<br>{T['measured_pcd_avg']}: {r['Turbidity_Actual']:.1f} NTU<br>{T['class_label']}: {cls['label']}",
-            max_width=220,
+            station_popup_html(r["Code"], r["Predicted_NTU"], r["Turbidity_Actual"], cls["label"]),
+            # Wide enough for "Mueang Ubon Ratchathani" to stay on one line;
+            # min_width stops short codes collapsing the card to a sliver.
+            max_width=320, min_width=250,
         ),
         tooltip=r["Code"],
     ).add_to(station_layer)
