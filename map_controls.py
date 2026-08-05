@@ -205,6 +205,22 @@ _CSS = """
 .wq-legend-caption { font-size:0.7rem; color:#8a95a3; margin-top:6px; line-height:1.35; }
 .wq-legend-range { color:#8a95a3; font-size:0.72rem; }
 
+/* ------------------------------------------------- information button ---
+   Bottom-left, one control above the zoom buttons, and part of the same
+   hand-coordinated stack as .leaflet-bottom.leaflet-left below - so the same
+   caveat applies: position:fixed anchors to the iframe's visible viewport,
+   and the offsets were read off the rendered zoom control rather than
+   derived. Measured at 1500x950: the zoom box spans 26-56px from the left
+   and its top edge sits 260px up from the bottom, so 270px clears it by 10
+   and 24px centres a 34px circle on its 30px column. */
+.wq-info-fab { position:fixed; left:24px; bottom:270px; z-index:1000;
+    width:34px; height:34px; padding:0; border:none; border-radius:50%;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    background:#12161c; color:#fff; box-shadow:0 2px 14px rgba(0,0,0,0.22);
+    transition:background .15s; }
+.wq-info-fab svg { width:19px; height:19px; }
+.wq-info-fab:hover { background:#33414f; }
+
 /* --------------------------------------------------------- info modal ---
    A centred modal rather than another fly-out panel: the data-source text
    runs to several paragraphs, which in a 230px rail panel would be a column
@@ -266,6 +282,10 @@ _CSS = """
      because this anchors to the iframe's own viewport, which starts ~32px
      down the page and runs past its bottom edge. */
   .leaflet-bottom.leaflet-left { bottom:258px !important; left:10px !important; }
+  /* Same relationship to the zoom control as on desktop, re-measured for
+     this breakpoint: zoom spans 20-50px from the left with its top 328px up. */
+  .wq-info-fab { left:20px; bottom:337px; width:30px; height:30px; }
+  .wq-info-fab svg { width:17px; height:17px; }
   /* Taller timeline bar here (two rows), and the bar itself sits higher to
      clear the Cloud badge, so the credit needs lifting further still. */
   .leaflet-bottom.leaflet-right { bottom:210px !important; }
@@ -286,6 +306,11 @@ _CSS = """
    The portrait paddings would spend two thirds of that on margin; these are
    measured to the actual gap so the card gets all of it. */
 @media (max-width: 640px) and (max-height: 480px) {
+  /* No room above the zoom control here - stacking one higher puts the button
+     behind the page header, which the zoom control is already close to. Sit
+     beside it instead, bottom edges aligned (258px corner offset + the
+     corner's own 10px padding). */
+  .wq-info-fab { left:58px; bottom:268px; }
   .wq-modal { padding:78px 12px 128px 12px; }
   .wq-modal-head { padding:10px 14px 8px 14px; }
   .wq-modal-body { padding:10px 14px 14px 14px; }
@@ -381,7 +406,7 @@ if (infoModal) {
    wheel scroll inside the modal or a rail panel zooms the map underneath it,
    and a drag across one pans the map. */
 if (window.L && L.DomEvent) {
-    mapEl.querySelectorAll('.wq-modal, .wq-panel, .wq-rail').forEach(function (el) {
+    mapEl.querySelectorAll('.wq-modal, .wq-panel, .wq-rail, .wq-info-fab').forEach(function (el) {
         L.DomEvent.disableClickPropagation(el);
         L.DomEvent.disableScrollPropagation(el);
     });
@@ -445,12 +470,13 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         )
         + f'<button class="wq-icon-btn wq-on" data-wq-toggle="basemap" style="--wq-color:{_BASEMAP_COLOR}">'
         + f'<span class="wq-icon-circle">{_BASEMAP_ICON}</span><span class="wq-icon-label">{basemap_label}</span></button>'
-        # Last in the rail, below the layer toggles: it controls nothing on
-        # the map, it explains what is already on it.
-        + (f'<button class="wq-icon-btn wq-on" data-wq-modal-open="info" style="--wq-color:{_INFO_COLOR}">'
-           f'<span class="wq-icon-circle">{_INFO_ICON}</span>'
-           f'<span class="wq-icon-label">{info_label}</span></button>' if info_html else '')
         + '</div>'
+        # Not a rail entry: it controls nothing on the map, it explains what
+        # is already on it. Sits on the bottom-left stack above the zoom
+        # buttons instead (see .wq-info-fab).
+        + (f'<button class="wq-info-fab" data-wq-modal-open="info" '
+           f'title="{info_label}" aria-label="{info_label}">{_INFO_ICON}</button>'
+           if info_html else '')
         + '<div class="wq-panel" data-wq-panel="legend">'
         + f'<div class="wq-panel-head">{_LEGEND_ICON}{legend_label}</div>'
         + legend_html
