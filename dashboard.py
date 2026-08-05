@@ -596,7 +596,7 @@ st.markdown(
        relative to the zoom buttons. */
     [data-testid="stSidebarCollapseButton"] {{
         position: fixed !important; left: 314px !important; bottom: 114px !important;
-        width: 38px !important; height: 38px !important; z-index: 1002 !important; }}
+        width: 34px !important; height: 34px !important; z-index: 1002 !important; }}
     [data-testid="stExpandSidebarButton"] {{
         position: fixed !important; left: 20px !important; bottom: 114px !important;
         z-index: 1002 !important; }}
@@ -609,9 +609,12 @@ st.markdown(
     [data-testid="stSidebarCollapseButton"] button,
     button[data-testid="stSidebarCollapseButton"],
     [data-testid="stExpandSidebarButton"] button,
+    /* 34px, matching the map's Information button directly above it - the two
+       sit in the same bottom-left column, so a size difference between them
+       read as a mistake rather than a hierarchy. */
     button[data-testid="stExpandSidebarButton"] {{
-        width: 38px !important; height: 38px !important; border-radius: 50% !important;
-        background: #ffffff url("{SIDEBAR_ICON}") center / 22px 22px no-repeat !important;
+        width: 34px !important; height: 34px !important; border-radius: 50% !important;
+        background: #ffffff url("{SIDEBAR_ICON}") center / 20px 20px no-repeat !important;
         box-shadow: 0 2px 10px rgba(0,0,0,0.22) !important; border: none !important;
         padding: 0 !important; }}
     [data-testid="stSidebarCollapseButton"] button:hover,
@@ -682,16 +685,20 @@ st.markdown(
       .page-title {{ font-size:0.82rem; line-height:1.2; }}
       .page-subtitle {{ font-size:0.6rem; line-height:1.25; }}
 
-      /* bottom:54, not 8. On Streamlit Cloud the app is served inside a
-         nested iframe and the "Hosted with Streamlit" badge and owner avatar
-         live in the *host* page on top of it - a different document, so no
-         CSS or JS from here can reach them (an earlier attempt to scale them
-         down did nothing, confirmed by transform:none on the deployed page).
-         Measured anonymously on the phone layout they occupy the full bottom
-         46px, x 253-390 - directly over the language switch, swallowing its
-         taps. The only fix available from inside the app is to keep our own
-         controls out of that strip. 54 = their 46px plus a margin. */
-      .st-key-timeline_bar {{ left:8px; right:8px; bottom:54px; padding:16px 10px 5px 10px; }}
+      /* This was 54px, holding the bar clear of the Streamlit Cloud badge and
+         owner avatar - they live in the *host* page on top of this app's
+         iframe, occupied the bottom 46px of the phone layout, and were
+         swallowing taps meant for the language switch. Those two are now
+         removed outright from the host document (see the components.html
+         block at the end of this file), so the strip they occupied is ours
+         again and the bar sits at the same 14px margin as on desktop. Every
+         other control in the bottom-left stack below moved down with it. */
+      /* position:fixed, not the desktop rule's absolute: absolute measures
+         `bottom` from the block container, whose bottom edge sits ~28px above
+         the viewport's, so the bar floated higher than the number asked for.
+         Fixed measures from the viewport, which is the edge being aimed at. */
+      .st-key-timeline_bar {{ position:fixed; left:8px; right:8px; bottom:14px;
+          padding:16px 10px 5px 10px; }}
       /* Undo that forced min-width so the columns can share rows again, then
          reorder into two: the slider alone on top (it needs the full width
          to be draggable), and calendar / arrows / language beneath it. */
@@ -758,8 +765,18 @@ st.markdown(
          overlays the map from x=0 to x=300, so a button at left:12 sits on
          top of the sidebar's own chart; 308 puts it just past the sidebar's
          edge, the same relationship the desktop layout already uses. */
-      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:186px !important; }}
-      [data-testid="stSidebarCollapseButton"] {{ left:308px !important; bottom:186px !important; }}
+      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:146px !important;
+          width:30px !important; height:30px !important; }}
+      [data-testid="stSidebarCollapseButton"] {{ left:308px !important; bottom:146px !important;
+          width:30px !important; height:30px !important; }}
+      /* 30px here, not the desktop 34: this matches both the Information
+         button and Leaflet's own zoom buttons at this breakpoint, so the
+         three controls in the column are one size. */
+      button[data-testid="stExpandSidebarButton"],
+      [data-testid="stExpandSidebarButton"] button,
+      button[data-testid="stSidebarCollapseButton"],
+      [data-testid="stSidebarCollapseButton"] button {{
+          width:30px !important; height:30px !important; background-size:18px 18px !important; }}
     }}
     </style>
     """,

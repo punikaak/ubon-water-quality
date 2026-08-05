@@ -18,6 +18,17 @@ Figure_*.png
 # Dead/unused cache (superseded by thailand_provinces.geojson etc.)
 ubon_water.json
 
+# Raw shapefiles opened in QGIS. Nothing in the app reads these - boundaries
+# come from Earth Engine / OSM and are cached as GeoJSON (see geo_boundary.py)
+# - and TH_Tambon.shp alone is 52MB, over GitHub's recommended file limit and
+# dead weight on every Streamlit Cloud deploy.
+Province Shapefile/
+Tambon Shapefile/
+*.shp
+*.shx
+*.dbf
+*.sr.lock
+
 # Runtime cache for composites downloaded from Drive by the deployed app.
 # Not to be confused with display_rasters/, which IS committed - that one is
 # the precomputed map layer the app renders from, and shipping it is the

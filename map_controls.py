@@ -302,18 +302,18 @@ _CSS = """
      sits above the two-row timeline bar. Offsets are larger than the page's
      because this anchors to the iframe's own viewport, which starts ~32px
      down the page and runs past its bottom edge. */
-  .leaflet-bottom.leaflet-left { bottom:258px !important; left:10px !important; }
+  .leaflet-bottom.leaflet-left { bottom:218px !important; left:10px !important; }
   /* Same relationship to the zoom control as on desktop, re-measured for
-     this breakpoint: zoom spans 20-50px from the left with its top 328px up. */
-  .wq-info-fab { left:20px; bottom:337px; width:30px; height:30px; }
+     this breakpoint: zoom spans 20-50px from the left with its top 288px up. */
+  .wq-info-fab { left:20px; bottom:297px; width:30px; height:30px; }
   .wq-info-fab svg { width:17px; height:17px; }
-  /* Taller timeline bar here (two rows), and the bar itself sits higher to
-     clear the Cloud badge, so the credit needs lifting further still. */
-  .leaflet-bottom.leaflet-right { bottom:210px !important; }
+  /* Taller timeline bar here (two rows), so the credit still needs lifting
+     further than on desktop even though the bar now sits at the same margin. */
+  .leaflet-bottom.leaflet-right { bottom:170px !important; }
   /* Both page-level strips are deeper here than on desktop: the title header
      wraps to two lines at the top, and the timeline bar gains a second row at
-     the bottom and sits higher to clear the Cloud badge. */
-  .wq-modal { padding:60px 12px 210px 12px; }
+     the bottom. */
+  .wq-modal { padding:60px 12px 170px 12px; }
   .wq-modal-card { border-radius:13px; }
   .wq-modal-head { padding:15px 16px 11px 16px; gap:9px; }
   .wq-modal-badge, .wq-modal-badge svg { width:25px; height:25px; }
@@ -326,7 +326,13 @@ _CSS = """
    clear band between the header and the timeline bar is only ~190px of 386.
    The portrait paddings would spend two thirds of that on margin; these are
    measured to the actual gap so the card gets all of it. */
-@media (max-width: 640px) and (max-height: 480px) {
+/* Keyed on height alone, deliberately. The page chrome this clears - header
+   above, timeline bar below - costs the same vertical space whatever the
+   width, and gating on width as well made the rule depend on whether the
+   sidebar happened to be open: open, this iframe is ~544px wide and the rule
+   applied; closed, it is ~844px and the card fell back to the desktop
+   paddings and overlapped both strips. */
+@media (max-height: 480px) {
   /* No room above the zoom control here - stacking one higher puts the button
      behind the page header, which the zoom control is already close to. Sit
      beside it instead, bottom edges aligned (258px corner offset + the
