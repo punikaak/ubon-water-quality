@@ -1,13 +1,19 @@
 """Boundary and reference-layer geometry for the Mekong Water Quality dashboard.
 
-- Ubon Ratchathani province boundary: OpenStreetMap Nominatim (relation
-  1908830), cached to ubon_boundary.geojson. Used to center the map and as
-  the water-masking extent for province_composite.py.
-- All-Thailand province boundaries: FAO/GAUL/2015/level1 via Earth Engine,
-  cached to thailand_provinces.geojson (76 provinces, simplified to 1km
-  tolerance server-side before download).
-- Ubon district (amphoe) boundaries: FAO/GAUL/2015/level2 via Earth Engine,
-  filtered to Ubon Ratchathani, cached to ubon_districts.geojson.
+- All-Thailand province boundaries (77): local TH_Province shapefile, cached
+  to thailand_provinces.geojson with both English and Thai names.
+- Ubon district (amphoe) boundaries (25): local TH_Tambon shapefile, its
+  subdistrict polygons dissolved by amphoe, cached to ubon_districts.geojson
+  with both names.
+  Both of the above are written by import_shapefiles.py - see that module for
+  why the shapefiles are converted rather than read directly.
+- Station place names: OpenStreetMap Nominatim reverse geocoding, cached to
+  station_locations.json.
+- Ubon Ratchathani outline: OpenStreetMap Nominatim (relation 1908830),
+  cached to ubon_boundary.geojson. The dashboard no longer uses this - it
+  takes Ubon's outline from the province shapefile above, so the boundary it
+  fits the map to is the same one it draws - but the Earth Engine export
+  scripts still keep it as a fallback study area.
 - Major roads (trunk + primary) within Ubon: OpenStreetMap Overpass, cached
   to ubon_roads.json.
 
@@ -162,6 +168,22 @@ def load_thailand_provinces() -> dict:
 def load_ubon_districts() -> dict:
     """Ubon Ratchathani's 25 districts: ADM2_NAME, plus ADM2_NAME_TH."""
     return _require_cache(UBON_DISTRICTS_CACHE, _SHAPEFILE_HINT, "Ubon district boundaries")
+
+
+@functools.lru_cache(maxsize=8)
+def load_province(name: str):
+    """One province's outline, as a shapely geometry, from the same shapefile
+    data the map draws.
+
+    Used for the map's initial fit bounds. That used to come from the separate
+    OpenStreetMap outline in load_boundary(), which meant the rectangle the map
+    fitted to and the outline it drew were two different pieces of geometry;
+    reading both from one source keeps them in step.
+    """
+    for feature in load_thailand_provinces()["features"]:
+        if feature["properties"].get("ADM1_NAME") == name:
+            return shape(feature["geometry"])
+    raise KeyError(f"{name!r} not found in {THAILAND_PROVINCES_CACHE}")
 
 
 @functools.lru_cache(maxsize=1)

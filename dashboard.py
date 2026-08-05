@@ -178,7 +178,9 @@ TRANSLATIONS = {
             "<b>Ground stations:</b> Measured turbidity from the "
             '<a href="https://www.pcd.go.th" target="_blank" rel="noopener">Thailand Pollution '
             "Control Department</a> (PCD), used to calibrate and validate the model above and "
-            "shown next to each satellite estimate."
+            "shown next to each satellite estimate. The place named in each station's popup is "
+            'reverse-geocoded from <a href="https://www.openstreetmap.org" target="_blank" '
+            'rel="noopener">OpenStreetMap</a>.'
         ),
         "info_src_streamflow": (
             "<b>Streamflow / water level:</b> Daily Mun River stage from the "
@@ -189,10 +191,9 @@ TRANSLATIONS = {
             "measured."
         ),
         "info_src_boundaries": (
-            "<b>Administrative boundaries:</b> Province and district outlines from FAO GAUL 2015 "
-            "(levels 1 and 2) via Earth Engine. The Ubon Ratchathani outline itself comes from "
-            '<a href="https://www.openstreetmap.org/relation/1908830" target="_blank" '
-            'rel="noopener">OpenStreetMap</a>.'
+            "<b>Administrative boundaries:</b> Thai administrative shapefiles held with this "
+            "project - all 77 provinces, and Ubon Ratchathani's 25 districts built by merging "
+            "the subdistrict (tambon) polygons into their amphoe. Reprojected from UTM zone 47N."
         ),
         "info_src_basemaps": (
             "<b>Base maps:</b> CARTO (Light, Dark), OpenStreetMap (Classic), OpenTopoMap "
@@ -286,7 +287,8 @@ TRANSLATIONS = {
             "<b>สถานีภาคพื้นดิน:</b> ค่าความขุ่นที่ตรวจวัดจริงโดย"
             '<a href="https://www.pcd.go.th" target="_blank" rel="noopener">กรมควบคุมมลพิษ</a> (คพ.) '
             "ใช้สำหรับปรับเทียบและตรวจสอบความถูกต้องของแบบจำลองข้างต้น "
-            "และแสดงคู่กับค่าที่ประเมินจากดาวเทียม"
+            "และแสดงคู่กับค่าที่ประเมินจากดาวเทียม ส่วนชื่อสถานที่ตั้งของแต่ละสถานีได้จากการค้นพิกัดย้อนกลับด้วย "
+            '<a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>'
         ),
         "info_src_streamflow": (
             "<b>ปริมาณน้ำ / ระดับน้ำ:</b> ระดับน้ำรายวันของแม่น้ำมูล จาก"
@@ -297,10 +299,10 @@ TRANSLATIONS = {
             "ซึ่งเป็นค่าที่ตรวจวัดจริงแทน"
         ),
         "info_src_boundaries": (
-            "<b>ขอบเขตการปกครอง:</b> ขอบเขตจังหวัดและอำเภอจาก FAO GAUL 2015 (ระดับ 1 และ 2) "
-            "ผ่าน Earth Engine ส่วนขอบเขตจังหวัดอุบลราชธานีมาจาก "
-            '<a href="https://www.openstreetmap.org/relation/1908830" target="_blank" '
-            'rel="noopener">OpenStreetMap</a>'
+            "<b>ขอบเขตการปกครอง:</b> ไฟล์รูปร่าง (shapefile) เขตการปกครองของไทยที่จัดเก็บไว้กับโครงการนี้ "
+            "ครอบคลุมทั้ง 77 จังหวัด และ 25 อำเภอของจังหวัดอุบลราชธานี "
+            "ซึ่งสร้างขึ้นโดยการรวมขอบเขตระดับตำบลเข้าเป็นอำเภอ "
+            "ข้อมูลถูกแปลงพิกัดจากระบบ UTM โซน 47N"
         ),
         "info_src_basemaps": (
             "<b>แผนที่ฐาน:</b> CARTO (สว่าง, มืด), OpenStreetMap (คลาสสิก), "
@@ -1101,8 +1103,7 @@ st.markdown(
 # visit has nothing saved, so this fallback only has to be reasonably close;
 # it's immediately corrected (see add_view_persistence) either from a saved
 # position or a proper fitBounds to the province boundary.
-boundary = geo.load_boundary()
-b_minx, b_miny, b_maxx, b_maxy = boundary.bounds
+b_minx, b_miny, b_maxx, b_maxy = geo.load_province(FOCUS_PROVINCE).bounds
 center_lat = station_summary["station_la"].mean()
 center_lon = station_summary["station_lo"].mean()
 fmap = folium.Map(location=[center_lat, center_lon], zoom_start=8, tiles=None, zoom_control=False)
