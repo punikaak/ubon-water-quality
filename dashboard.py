@@ -965,7 +965,7 @@ def province_history():
 def load_provinces_for_display(tolerance=0.02):
     """Thailand province outlines, simplified again for rendering.
 
-    The cached GeoJSON is ~490KB of 76 polygons, and streamlit-folium
+    The cached GeoJSON is ~650KB of 77 polygons, and streamlit-folium
     re-sends the whole map (this included) to the browser on *every* rerun -
     Leaflet re-drawing it is the dominant cost of every interaction, ~5s
     measured. Simplifying to ~2km cuts it to under a third with no visible
@@ -980,7 +980,12 @@ def load_provinces_for_display(tolerance=0.02):
             continue
         features.append({
             "type": "Feature",
-            "properties": {"ADM1_NAME": f["properties"].get("ADM1_NAME")},
+            "properties": {
+                "ADM1_NAME": f["properties"].get("ADM1_NAME"),
+                # Carried through so the hover label can be Thai in Thai mode;
+                # dropping it here would strand it in the cache file.
+                "ADM1_NAME_TH": f["properties"].get("ADM1_NAME_TH"),
+            },
             "geometry": mapping(geom),
         })
     return {"type": "FeatureCollection", "features": features}
@@ -1201,6 +1206,12 @@ stations_def = {
     "title": T["pcd_dept"],
 }
 
+# Boundary hover labels follow the interface language. The shapefiles these
+# come from carry both names (see import_shapefiles.py); the previous Earth
+# Engine source had English only, which is why these were English-only before.
+PROVINCE_NAME_FIELD = "ADM1_NAME_TH" if LANG == "th" else "ADM1_NAME"
+DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
+
 # --- All Thailand provinces, Ubon Ratchathani highlighted ---
 province_def = None
 try:
@@ -1221,7 +1232,7 @@ try:
 
     province_layer = folium.GeoJson(
         provinces_geojson, name="Provinces", style_function=province_style,
-        tooltip=folium.GeoJsonTooltip(fields=["ADM1_NAME"], aliases=[""]),
+        tooltip=folium.GeoJsonTooltip(fields=[PROVINCE_NAME_FIELD], aliases=[""]),
         show=True,
     )
     province_layer.add_to(fmap)
@@ -1237,7 +1248,7 @@ try:
         districts_geojson, name="Districts",
         style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 1, "dashArray": "3,3",
                                    "fill": False, "fillOpacity": 0},
-        tooltip=folium.GeoJsonTooltip(fields=["ADM2_NAME"], aliases=[""]),
+        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
         show=False,
     )
     district_layer.add_to(fmap)

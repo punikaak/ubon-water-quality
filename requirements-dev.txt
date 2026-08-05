@@ -1,7 +1,11 @@
 # Extra dependencies for the LOCAL data-refresh scripts only (refresh_ubon_data.py,
-# backfill_ubon_weekly.py, geo_boundary.fetch_*, export_ubon_monthly_gee.py). Not
-# needed by the deployed dashboard itself - keeps Streamlit Cloud's install lean.
+# backfill_ubon_weekly.py, geo_boundary.fetch_roads, export_ubon_monthly_gee.py,
+# import_shapefiles.py). Not needed by the deployed dashboard itself - keeps
+# Streamlit Cloud's install lean.
 -r requirements.txt
 earthengine-api>=1.4
 scipy>=1.11
 seaborn>=0.13
+# Reads the Thai .shp/.dbf files for import_shapefiles.py. Pure Python, no GDAL
+# build needed; the reprojection it feeds uses rasterio, already a dependency.
+pyshp>=2.3

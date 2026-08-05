@@ -142,26 +142,26 @@ def station_location_parts(stations, lang="en"):
     return out
 
 
-def _require_cache(path, fetch_fn, label):
+def _require_cache(path, hint, label):
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    raise FileNotFoundError(
-        f"{path} not found. Run: python -c \"import geo_boundary as g; g.{fetch_fn}()\" "
-        f"once from a GEE-authenticated environment to fetch {label}."
-    )
+    raise FileNotFoundError(f"{path} not found ({label}). {hint}")
+
+
+_SHAPEFILE_HINT = "Run: python import_shapefiles.py (needs the local shapefile folders)."
 
 
 @functools.lru_cache(maxsize=1)
 def load_thailand_provinces() -> dict:
-    """GeoJSON FeatureCollection of all Thailand provinces (ADM1_NAME property)."""
-    return _require_cache(THAILAND_PROVINCES_CACHE, "fetch_thailand_provinces", "Thailand province boundaries")
+    """All 77 Thailand provinces: ADM1_NAME, plus ADM1_NAME_TH for the Thai UI."""
+    return _require_cache(THAILAND_PROVINCES_CACHE, _SHAPEFILE_HINT, "Thailand province boundaries")
 
 
 @functools.lru_cache(maxsize=1)
 def load_ubon_districts() -> dict:
-    """GeoJSON FeatureCollection of Ubon Ratchathani's districts (ADM2_NAME property)."""
-    return _require_cache(UBON_DISTRICTS_CACHE, "fetch_ubon_districts", "Ubon district boundaries")
+    """Ubon Ratchathani's 25 districts: ADM2_NAME, plus ADM2_NAME_TH."""
+    return _require_cache(UBON_DISTRICTS_CACHE, _SHAPEFILE_HINT, "Ubon district boundaries")
 
 
 @functools.lru_cache(maxsize=1)
@@ -185,28 +185,13 @@ def load_roads() -> list:
 # not called automatically since Thailand-wide EE queries and countrywide
 # Overpass queries are slow and shouldn't run on every dashboard load.
 
-def fetch_thailand_provinces(simplify_m: int = 1000):
-    import ee
-    ee.Initialize(project="gee-training-498303")
-    provinces = ee.FeatureCollection("FAO/GAUL/2015/level1")
-    thailand = provinces.filter(ee.Filter.eq("ADM0_NAME", "Thailand"))
-    simplified = thailand.map(lambda f: f.simplify(simplify_m).select(["ADM1_NAME"]))
-    geo = simplified.getInfo()
-    with open(THAILAND_PROVINCES_CACHE, "w", encoding="utf-8") as f:
-        json.dump(geo, f)
-    return geo
-
-
-def fetch_ubon_districts(simplify_m: int = 200):
-    import ee
-    ee.Initialize(project="gee-training-498303")
-    districts = ee.FeatureCollection("FAO/GAUL/2015/level2")
-    ubon = districts.filter(ee.Filter.eq("ADM1_NAME", "Ubon Ratchathani"))
-    simplified = ubon.map(lambda f: f.simplify(simplify_m).select(["ADM2_NAME"]))
-    geo = simplified.getInfo()
-    with open(UBON_DISTRICTS_CACHE, "w", encoding="utf-8") as f:
-        json.dump(geo, f)
-    return geo
+# fetch_thailand_provinces() and fetch_ubon_districts() used to live here,
+# pulling FAO/GAUL/2015 levels 1 and 2 from Earth Engine. Both boundary sets
+# now come from the local Thai shapefiles instead (import_shapefiles.py),
+# which are more complete - GAUL had 20 of Ubon's 25 districts - and carry
+# Thai names, which GAUL did not. The fetchers are gone rather than kept as a
+# fallback: they wrote to these same two files, so calling one would quietly
+# replace the better data with the worse.
 
 
 def fetch_roads(highway_types="trunk|primary"):

@@ -123,6 +123,27 @@ the map build and Streamlit's own boot. Note the cloud still makes one Drive
 API call at startup to *list* what composites exist; it no longer downloads
 any of them to render.
 
+## Boundary data
+
+Province and district outlines come from Thai shapefiles kept locally in
+`Province Shapefile/` and `Tambon Shapefile/`. They are **not** in the repo -
+together they are ~68MB and `TH_Tambon.shp` alone exceeds GitHub's 50MB file
+limit - so they are converted once into two small GeoJSON caches that are:
+
+```bash
+python import_shapefiles.py   # writes thailand_provinces.geojson + ubon_districts.geojson
+```
+
+Those two files are committed, and the deployed app reads only them. If you
+replace either shapefile, re-run the script and commit the output.
+
+The tambon (subdistrict) file is dissolved by amphoe to produce the district
+layer. That is more complete than the FAO GAUL data this replaced - 25 of
+Ubon's districts against GAUL's 20 - and it carries Thai names, so boundary
+hover labels now follow the interface language. As a cross-check on the
+conversion, the 25 dissolved districts fill the province outline from the
+separate province shapefile to within 0.02% by area.
+
 ## Why Google Drive instead of Cloud Storage
 
 The original plan used Google Cloud Storage, but bucket creation failed:
@@ -137,7 +158,8 @@ billing requirement, so that's the storage backend for now
 
 - `dashboard.py` - the Streamlit app
 - `turbidity_model.py` - the calibrated MLP inference pipeline
-- `geo_boundary.py` - province/district/road reference layers (Earth Engine + OpenStreetMap)
+- `geo_boundary.py` - province/district/road reference layers (local shapefiles + OpenStreetMap)
+- `import_shapefiles.py` - converts the local Thai shapefiles into the two boundary caches (see below)
 - `province_composite.py` - loads Sentinel-2 composites, from local disk or Drive
 - `drive_client.py` - shared Google Drive access (dashboard read path)
 - `rid_streamflow.py` - RID streamflow API + the `mun_levels.json` snapshot it writes (see module docstring for the API's limitations)
