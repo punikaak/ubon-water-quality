@@ -49,13 +49,35 @@ _BASEMAP_ICON = (
     'stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round">'
     '<path d="M9 4 4 6.5v13L9 17l6 2 5-2.5v-13L15 6l-6-2Z"/><path d="M9 4v13M15 6v13"/></svg>'
 )
+# A key/list glyph rather than the circled "i" this used to be: the Information
+# button below is the one that means "i", and two identical glyphs three slots
+# apart on the same rail is not a distinction anyone can act on.
 _LEGEND_ICON = (
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="2" stroke-linecap="round">'
+    '<circle cx="5.2" cy="6.5" r="1.7" fill="currentColor" stroke="none"/>'
+    '<line x1="10" y1="6.5" x2="20" y2="6.5"/>'
+    '<circle cx="5.2" cy="12" r="1.7" fill="currentColor" stroke="none"/>'
+    '<line x1="10" y1="12" x2="20" y2="12"/>'
+    '<circle cx="5.2" cy="17.5" r="1.7" fill="currentColor" stroke="none"/>'
+    '<line x1="10" y1="17.5" x2="20" y2="17.5"/></svg>'
+)
+_LEGEND_COLOR = "#5b6b7c"
+_INFO_ICON = (
     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
     'stroke-width="1.8" stroke-linecap="round">'
     '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/>'
     '<circle cx="12" cy="7.6" r="0.6" fill="currentColor"/></svg>'
 )
-_LEGEND_COLOR = "#5b6b7c"
+# The badge inside the modal header is a solid disc with a knocked-out "i"
+# (rather than the rail's outline glyph), which is what gives the header its
+# weight at the larger size.
+_INFO_BADGE = (
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="currentColor"/>'
+    '<circle cx="12" cy="7.2" r="1.45" fill="#fff"/>'
+    '<rect x="10.6" y="10.2" width="2.8" height="7.2" rx="1.4" fill="#fff"/></svg>'
+)
+_INFO_COLOR = "#1e3a4a"
 
 # Fixed per-layer icon glyph + accent color, keyed by the same "key" used in
 # overlay_defs - this app only ever has these four toggleable overlays, so
@@ -183,6 +205,46 @@ _CSS = """
 .wq-legend-caption { font-size:0.7rem; color:#8a95a3; margin-top:6px; line-height:1.35; }
 .wq-legend-range { color:#8a95a3; font-size:0.72rem; }
 
+/* --------------------------------------------------------- info modal ---
+   A centred modal rather than another fly-out panel: the data-source text
+   runs to several paragraphs, which in a 230px rail panel would be a column
+   ~30 characters wide. Same fixed-positioning reasoning as .wq-rail above -
+   inset:0 covers the iframe's visible viewport, which is what the reader
+   sees, not the oversized map container. */
+/* The oversized bottom padding is clearance, not taste: the timeline bar is
+   a page element painted on top of this iframe, so a card centred on the
+   iframe's own viewport has its lower third covered by it. Padding is what
+   bounds the card rather than a vh figure, because an inset:0 fixed element
+   resolves its content box to the viewport minus its own padding - so the
+   card's max-height:100% below is already "what's left once the timeline
+   bar's strip is excluded", with no second number to keep in sync. */
+.wq-modal { position:fixed; inset:0; z-index:2000; display:none;
+    align-items:center; justify-content:center; padding:24px 24px 100px 24px;
+    background:rgba(15,23,32,0.45); font-family:__WQ_FONT__; }
+.wq-modal.wq-open { display:flex; }
+.wq-modal-card { background:#fff; border-radius:16px; width:min(640px,100%);
+    max-height:100%; display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 18px 50px rgba(0,0,0,0.32); }
+.wq-modal-head { display:flex; align-items:center; gap:12px; flex-shrink:0;
+    padding:20px 22px 14px 22px; border-bottom:1px solid #eef0f2; }
+.wq-modal-badge { width:30px; height:30px; flex-shrink:0; color:#12161c; }
+.wq-modal-badge svg { width:30px; height:30px; display:block; }
+.wq-modal-title { flex:1; font-size:1.3rem; font-weight:700; color:#1e3a4a; }
+.wq-modal-close { border:none; background:none; cursor:pointer; color:#5b6b7c;
+    font-size:1.5rem; line-height:1; padding:2px 8px; border-radius:8px; }
+.wq-modal-close:hover { background:#f1f3f6; color:#1e3a4a; }
+.wq-modal-body { padding:16px 22px 22px 22px; overflow-y:auto; }
+.wq-info-section { font-weight:700; font-size:0.95rem; color:#1e2a36; margin:0 0 10px 0; }
+.wq-info-section:not(:first-child) { margin-top:18px; }
+.wq-info-box { border:1px solid #e7eaf0; border-radius:10px; padding:0 14px; }
+.wq-info-row { font-size:0.84rem; line-height:1.55; color:#2b2b3a; margin:0;
+    padding:11px 0; border-bottom:1px solid #eef0f2; }
+.wq-info-row:last-child { border-bottom:none; }
+.wq-info-row b { color:#12161c; }
+.wq-info-row a { color:#2a78d6; text-decoration:none; }
+.wq-info-row a:hover { text-decoration:underline; }
+.wq-info-note { font-size:0.74rem; color:#8a95a3; line-height:1.5; margin:12px 2px 0 2px; }
+
 /* ------------------------------------------------------------- phones ---
    This stylesheet lives inside the map iframe, so it needs its own media
    query - the page's one (see dashboard.py) cannot reach in here. At 390px
@@ -207,6 +269,28 @@ _CSS = """
   /* Taller timeline bar here (two rows), and the bar itself sits higher to
      clear the Cloud badge, so the credit needs lifting further still. */
   .leaflet-bottom.leaflet-right { bottom:210px !important; }
+  /* Both page-level strips are deeper here than on desktop: the title header
+     wraps to two lines at the top, and the timeline bar gains a second row at
+     the bottom and sits higher to clear the Cloud badge. */
+  .wq-modal { padding:60px 12px 210px 12px; }
+  .wq-modal-card { border-radius:13px; }
+  .wq-modal-head { padding:15px 16px 11px 16px; gap:9px; }
+  .wq-modal-badge, .wq-modal-badge svg { width:25px; height:25px; }
+  .wq-modal-title { font-size:1.08rem; }
+  .wq-modal-body { padding:13px 16px 17px 16px; }
+  .wq-info-row { font-size:0.79rem; }
+}
+
+/* Landscape phone: the page chrome does not shrink with the viewport, so the
+   clear band between the header and the timeline bar is only ~190px of 386.
+   The portrait paddings would spend two thirds of that on margin; these are
+   measured to the actual gap so the card gets all of it. */
+@media (max-width: 640px) and (max-height: 480px) {
+  .wq-modal { padding:78px 12px 128px 12px; }
+  .wq-modal-head { padding:10px 14px 8px 14px; }
+  .wq-modal-body { padding:10px 14px 14px 14px; }
+  .wq-modal-title { font-size:1rem; }
+  .wq-modal-badge, .wq-modal-badge svg { width:21px; height:21px; }
 }
 </style>
 """
@@ -251,6 +335,57 @@ document.addEventListener('click', function (e) {
     mapEl.querySelectorAll('.wq-panel').forEach(function (p) { p.classList.remove('wq-open'); });
     mapEl.querySelectorAll('[data-wq-toggle]').forEach(function (b) { b.classList.remove('wq-active'); });
 });
+
+/* ---------------------------------------------------------- info modal ---
+   Opening it closes any rail fly-out first, so the two never stack. */
+var infoModal = mapEl.querySelector('.wq-modal');
+/* A Streamlit rerun replaces this whole iframe, taking any open modal with
+   it - but the flag we set on the *parent* body survives that, and would
+   leave the page's controls hidden for good. This runs on every render, so
+   a stale flag never outlives the modal that set it. */
+try { window.parent.document.body.classList.remove('wq-modal-open'); } catch (e) {}
+if (infoModal) {
+    var setInfo = function (open) {
+        if (open) {
+            mapEl.querySelectorAll('.wq-panel').forEach(function (p) { p.classList.remove('wq-open'); });
+            mapEl.querySelectorAll('[data-wq-toggle]').forEach(function (b) { b.classList.remove('wq-active'); });
+        }
+        infoModal.classList.toggle('wq-open', open);
+        /* The page's own floating controls are painted above this iframe and
+           cannot be covered by a backdrop drawn inside it - they would sit on
+           top of the card, still clickable. Flag the state on the parent body
+           and let the page decide which of its controls to stand down; that
+           keeps this module from having to know the page's selectors. */
+        try { window.parent.document.body.classList.toggle('wq-modal-open', open); } catch (e) {}
+    };
+    mapEl.querySelectorAll('[data-wq-modal-open]').forEach(function (btn) {
+        btn.addEventListener('click', function () { setInfo(!infoModal.classList.contains('wq-open')); });
+    });
+    mapEl.querySelectorAll('[data-wq-modal-close]').forEach(function (btn) {
+        btn.addEventListener('click', function () { setInfo(false); });
+    });
+    /* Backdrop only - a click that started on the card must not dismiss it,
+       which is why this tests the target rather than using a bubbled click. */
+    infoModal.addEventListener('click', function (e) { if (e.target === infoModal) setInfo(false); });
+    var onEsc = function (e) { if (e.key === 'Escape') setInfo(false); };
+    document.addEventListener('keydown', onEsc);
+    /* A keydown only reaches the document that has focus, and the reader may
+       well have last clicked the sidebar rather than the map - in which case
+       this iframe never sees the key at all. The parent page is same-origin
+       (srcdoc), so listen there too; guarded because that stops being true if
+       the map is ever embedded cross-origin. */
+    try { window.parent.document.addEventListener('keydown', onEsc); } catch (e) {}
+}
+
+/* These overlays are children of the Leaflet container, so without this a
+   wheel scroll inside the modal or a rail panel zooms the map underneath it,
+   and a drag across one pans the map. */
+if (window.L && L.DomEvent) {
+    mapEl.querySelectorAll('.wq-modal, .wq-panel, .wq-rail').forEach(function (el) {
+        L.DomEvent.disableClickPropagation(el);
+        L.DomEvent.disableScrollPropagation(el);
+    });
+}
 """
 
 
@@ -276,7 +411,8 @@ def _overlay_button(key, label, default_on, title=""):
 
 def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_html,
                     legend_label="Legend", basemap_label="Base Map",
-                    font_stack="'Poppins', 'Noto Sans Thai', sans-serif"):
+                    font_stack="'Poppins', 'Noto Sans Thai', sans-serif",
+                    info_html=None, info_label="Information"):
     """Attach the pill-shaped icon rail (top-right) to a folium map.
 
     basemap_layers: {display_name: folium.TileLayer}, already added to fmap.
@@ -288,6 +424,10 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         built by the caller, which owns the actual style constants).
     legend_label/basemap_label: current-language labels for those two rail
         buttons (overlay_defs already carries its own labels per-entry).
+    info_html: inner HTML for the Information modal (data sources, caveats -
+        again built by the caller, which knows what the app actually shows).
+        Omit it and no Information button is added at all.
+    info_label: current-language label for that button and the modal heading.
     font_stack: CSS font-family for this iframe's own chrome. Passed in
         because the caller owns the language, and the stack is ordered by it -
         this stylesheet lives inside the map iframe and inherits nothing from
@@ -305,6 +445,11 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         )
         + f'<button class="wq-icon-btn wq-on" data-wq-toggle="basemap" style="--wq-color:{_BASEMAP_COLOR}">'
         + f'<span class="wq-icon-circle">{_BASEMAP_ICON}</span><span class="wq-icon-label">{basemap_label}</span></button>'
+        # Last in the rail, below the layer toggles: it controls nothing on
+        # the map, it explains what is already on it.
+        + (f'<button class="wq-icon-btn wq-on" data-wq-modal-open="info" style="--wq-color:{_INFO_COLOR}">'
+           f'<span class="wq-icon-circle">{_INFO_ICON}</span>'
+           f'<span class="wq-icon-label">{info_label}</span></button>' if info_html else '')
         + '</div>'
         + '<div class="wq-panel" data-wq-panel="legend">'
         + f'<div class="wq-panel-head">{_LEGEND_ICON}{legend_label}</div>'
@@ -314,6 +459,14 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         + f'<div class="wq-panel-head">{_BASEMAP_ICON}{basemap_label}</div>'
         + "".join(_basemap_row(name, name == default_basemap) for name in basemap_layers)
         + '</div>'
+        + (('<div class="wq-modal"><div class="wq-modal-card">'
+            '<div class="wq-modal-head">'
+            f'<span class="wq-modal-badge">{_INFO_BADGE}</span>'
+            f'<span class="wq-modal-title">{info_label}</span>'
+            f'<button class="wq-modal-close" data-wq-modal-close aria-label="Close">&times;</button>'
+            '</div>'
+            f'<div class="wq-modal-body">{info_html}</div>'
+            '</div></div>') if info_html else '')
     )
 
     basemap_js_map = ",".join(f'"{name}":{layer.get_name()}' for name, layer in basemap_layers.items())

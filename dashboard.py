@@ -149,6 +149,52 @@ TRANSLATIONS = {
         "no_districts": "District boundaries not available.",
         "risk": "Risk",
         "window_label": "01 Nov - 31 Dec 2024",
+        # --- Information modal. The {…} fields are filled from the model
+        # constants in turbidity_model.py rather than typed out here, so the
+        # accuracy figures on screen cannot drift from the model that produced
+        # them. ---
+        "info_label": "Information",
+        "info_data_source": "Data Source",
+        "info_src_turbidity": (
+            "<b>Turbidity (satellite):</b> Sentinel-2 Level-2A surface reflectance "
+            "(COPERNICUS/S2_SR_HARMONIZED), composited from scenes with under 80% cloud "
+            "cover and exported at 20 m resolution through "
+            '<a href="https://earthengine.google.com" target="_blank" rel="noopener">Google Earth '
+            "Engine</a>. Reflectance is converted to turbidity by a calibrated neural network "
+            "(MLP) - R&sup2; {r2:.3f}, RMSE {rmse:.2f} NTU against {n} Ubon ground samples."
+        ),
+        "info_src_stations": (
+            "<b>Ground stations:</b> Measured turbidity from the "
+            '<a href="https://www.pcd.go.th" target="_blank" rel="noopener">Thailand Pollution '
+            "Control Department</a> (PCD), used to calibrate and validate the model above and "
+            "shown next to each satellite estimate."
+        ),
+        "info_src_streamflow": (
+            "<b>Streamflow / water level:</b> Daily Mun River stage from the "
+            '<a href="https://hydro-4.rid.go.th" target="_blank" rel="noopener">Royal Irrigation '
+            "Department</a> (RID) Lower North-East Hydro Center. The service publishes no "
+            "discharge (m&sup3;/s) figure for these gauges - the field exists but is empty on "
+            "every day in the range - so water level is shown, being the quantity actually "
+            "measured."
+        ),
+        "info_src_boundaries": (
+            "<b>Administrative boundaries:</b> Province and district outlines from FAO GAUL 2015 "
+            "(levels 1 and 2) via Earth Engine. The Ubon Ratchathani outline itself comes from "
+            '<a href="https://www.openstreetmap.org/relation/1908830" target="_blank" '
+            'rel="noopener">OpenStreetMap</a>.'
+        ),
+        "info_src_basemaps": (
+            "<b>Base maps:</b> CARTO (Light, Dark), OpenStreetMap (Classic), OpenTopoMap "
+            "(Terrain) and Esri World Imagery (Satellite)."
+        ),
+        "info_src_coverage": (
+            "<b>Coverage:</b> Weekly composites across {window}. Heavy cloud on a given week "
+            "can leave gaps in that date's water mask."
+        ),
+        "info_note": (
+            "Satellite turbidity is a model estimate, not a measurement. Values are indicative "
+            "and are not an official Thai PCD figure."
+        ),
     },
     "th": {
         "page_title": "คุณภาพน้ำแม่น้ำโขง - ประเทศไทย",
@@ -204,6 +250,49 @@ TRANSLATIONS = {
         "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
         "risk": "ความเสี่ยง",
         "window_label": "1 พ.ย. - 31 ธ.ค. 2567",
+        "info_label": "ข้อมูล",
+        "info_data_source": "แหล่งที่มาของข้อมูล",
+        "info_src_turbidity": (
+            "<b>ความขุ่นจากดาวเทียม:</b> ค่าการสะท้อนแสงพื้นผิวจาก Sentinel-2 ระดับ 2A "
+            "(COPERNICUS/S2_SR_HARMONIZED) รวมภาพจากฉากที่มีเมฆปกคลุมน้อยกว่า 80% "
+            "และส่งออกที่ความละเอียด 20 เมตร ผ่าน "
+            '<a href="https://earthengine.google.com" target="_blank" rel="noopener">Google Earth '
+            "Engine</a> จากนั้นแปลงเป็นค่าความขุ่นด้วยแบบจำลองโครงข่ายประสาทเทียม (MLP) "
+            "ที่ผ่านการปรับเทียบ - R&sup2; {r2:.3f}, RMSE {rmse:.2f} NTU "
+            "เทียบกับตัวอย่างภาคพื้นดินในจังหวัดอุบลราชธานี {n} ตัวอย่าง"
+        ),
+        "info_src_stations": (
+            "<b>สถานีภาคพื้นดิน:</b> ค่าความขุ่นที่ตรวจวัดจริงโดย"
+            '<a href="https://www.pcd.go.th" target="_blank" rel="noopener">กรมควบคุมมลพิษ</a> (คพ.) '
+            "ใช้สำหรับปรับเทียบและตรวจสอบความถูกต้องของแบบจำลองข้างต้น "
+            "และแสดงคู่กับค่าที่ประเมินจากดาวเทียม"
+        ),
+        "info_src_streamflow": (
+            "<b>ปริมาณน้ำ / ระดับน้ำ:</b> ระดับน้ำรายวันของแม่น้ำมูล จาก"
+            '<a href="https://hydro-4.rid.go.th" target="_blank" rel="noopener">กรมชลประทาน</a> '
+            "ศูนย์อุทกวิทยาชลประทานภาคตะวันออกเฉียงเหนือตอนล่าง "
+            "ทั้งนี้ระบบไม่ได้เผยแพร่ค่าอัตราการไหล (ลบ.ม./วินาที) ของสถานีเหล่านี้ "
+            "โดยมีช่องข้อมูลแต่ว่างเปล่าทุกวันในช่วงที่แสดง จึงแสดงระดับน้ำ "
+            "ซึ่งเป็นค่าที่ตรวจวัดจริงแทน"
+        ),
+        "info_src_boundaries": (
+            "<b>ขอบเขตการปกครอง:</b> ขอบเขตจังหวัดและอำเภอจาก FAO GAUL 2015 (ระดับ 1 และ 2) "
+            "ผ่าน Earth Engine ส่วนขอบเขตจังหวัดอุบลราชธานีมาจาก "
+            '<a href="https://www.openstreetmap.org/relation/1908830" target="_blank" '
+            'rel="noopener">OpenStreetMap</a>'
+        ),
+        "info_src_basemaps": (
+            "<b>แผนที่ฐาน:</b> CARTO (สว่าง, มืด), OpenStreetMap (คลาสสิก), "
+            "OpenTopoMap (ภูมิประเทศ) และ Esri World Imagery (ภาพถ่ายดาวเทียม)"
+        ),
+        "info_src_coverage": (
+            "<b>ช่วงข้อมูล:</b> ภาพรวมรายสัปดาห์ ระหว่าง {window} "
+            "สัปดาห์ที่มีเมฆหนาอาจทำให้พื้นที่น้ำของวันนั้นขาดหายไปบางส่วน"
+        ),
+        "info_note": (
+            "ค่าความขุ่นจากดาวเทียมเป็นค่าประเมินจากแบบจำลอง ไม่ใช่ค่าที่ตรวจวัดโดยตรง "
+            "ใช้เป็นข้อมูลเบื้องต้นเท่านั้น และไม่ใช่ค่าทางการของกรมควบคุมมลพิษ"
+        ),
     },
 }
 
@@ -520,6 +609,18 @@ st.markdown(
     [data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"] {{
         display: none !important; }}
 
+    /* Stand this button down while the map's Information modal is open. The
+       modal is drawn inside the map iframe, so its backdrop cannot cover
+       page-level chrome like this one: on a phone the button lands on top of
+       the card and stays clickable through what looks like a backdrop. The
+       class is set on <body> by map_controls' modal (see the wq-modal-open
+       comment there) precisely so the page keeps ownership of this decision.
+       Visibility rather than display: display:none on a focused element moves
+       focus to the top of the document. */
+    body.wq-modal-open [data-testid="stExpandSidebarButton"],
+    body.wq-modal-open [data-testid="stSidebarCollapseButton"] {{
+        visibility: hidden !important; }}
+
     /* Ranked district rows. */
     .rank-row {{ display:flex; align-items:center; gap:8px; padding:5px 0 0 0; font-size:0.8rem; }}
     .rank-num {{ width:18px; color:{P['muted']}; font-size:0.72rem; flex-shrink:0; }}
@@ -702,6 +803,32 @@ def build_legend_html():
         f'<div class="wq-legend-heading">{T["legend_layers"]}</div>{layer_rows}'
         f'<div class="wq-legend-heading">{T["legend_turbidity_levels"]}</div>{turbidity_rows}'
         f'<div class="wq-legend-caption">{T["legend_caption"]}</div>'
+    )
+
+
+def build_info_html():
+    """Body of the Information modal - where every number on this map comes
+    from, in the current language.
+
+    The model's accuracy figures are pulled from turbidity_model rather than
+    written into the translation strings, so retraining updates what the
+    dashboard claims about itself instead of leaving a stale number on screen.
+    """
+    rows = [
+        T["info_src_turbidity"].format(
+            r2=tm.VALIDATION_R2, rmse=tm.VALIDATION_RMSE, n=tm.VALIDATION_N),
+        T["info_src_stations"],
+        T["info_src_streamflow"],
+        T["info_src_boundaries"],
+        T["info_src_basemaps"],
+        T["info_src_coverage"].format(window=T["window_label"]),
+    ]
+    return (
+        f'<div class="wq-info-section">{T["info_data_source"]}</div>'
+        '<div class="wq-info-box">'
+        + "".join(f'<p class="wq-info-row">{r}</p>' for r in rows)
+        + '</div>'
+        f'<div class="wq-info-note">{T["info_note"]}</div>'
     )
 
 
@@ -1042,6 +1169,7 @@ map_controls.add_layer_rail(
     fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
     font_stack=FONT_STACK,
+    info_html=build_info_html(), info_label=T["info_label"],
 )
 map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
 map_controls.add_zoom_control(fmap)
