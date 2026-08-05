@@ -48,7 +48,11 @@ RANGE_END = dt.date(2024, 12, 31)
 # Actual on-map symbol colors, reused so the legend and the layer-toggle
 # panel never drift out of sync with what's really drawn on the map.
 PROVINCE_LINE_COLOR = "#9aa3ad"
-PROVINCE_FOCUS_COLOR = "#e05a2b"
+# The highlight around Ubon itself, drawn heavier than the other provinces'
+# outlines. Black rather than a hue: the turbidity overlay it encloses is
+# itself a colour scale, so a coloured boundary competed with the data for
+# attention and, at the orange end of that scale, blended into it.
+PROVINCE_FOCUS_COLOR = "#000000"
 DISTRICT_LINE_COLOR = "#6b7684"
 STATION_STROKE_COLOR = "#2b2b3a"
 HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
