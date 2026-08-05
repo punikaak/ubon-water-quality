@@ -518,11 +518,16 @@ st.markdown(
       .page-title {{ font-size:0.82rem; line-height:1.2; }}
       .page-subtitle {{ font-size:0.6rem; line-height:1.25; }}
 
-      /* bottom:36, not 8: the Cloud badge is pinned to the very corner and
-         even scaled down occupies the bottom ~28px, which otherwise covered
-         the language switch and swallowed taps meant for it. The whole
-         bottom-left stack below is offset to match. */
-      .st-key-timeline_bar {{ left:8px; right:8px; bottom:36px; padding:16px 10px 5px 10px; }}
+      /* bottom:54, not 8. On Streamlit Cloud the app is served inside a
+         nested iframe and the "Hosted with Streamlit" badge and owner avatar
+         live in the *host* page on top of it - a different document, so no
+         CSS or JS from here can reach them (an earlier attempt to scale them
+         down did nothing, confirmed by transform:none on the deployed page).
+         Measured anonymously on the phone layout they occupy the full bottom
+         46px, x 253-390 - directly over the language switch, swallowing its
+         taps. The only fix available from inside the app is to keep our own
+         controls out of that strip. 54 = their 46px plus a margin. */
+      .st-key-timeline_bar {{ left:8px; right:8px; bottom:54px; padding:16px 10px 5px 10px; }}
       /* Undo that forced min-width so the columns can share rows again, then
          reorder into two: the slider alone on top (it needs the full width
          to be draggable), and calendar / arrows / language beneath it. */
@@ -584,8 +589,13 @@ st.markdown(
       /* Both sidebar states share one position on a phone: the sidebar
          overlays the map rather than shrinking it, so there is no second
          layout to offset against. Raised to clear the two-row timeline. */
-      [data-testid="stSidebarCollapseButton"],
-      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:168px !important; }}
+      /* Two positions, not one. Closed, the button is the only thing on
+         screen and belongs in the map's bottom-left stack. Open, the sidebar
+         overlays the map from x=0 to x=300, so a button at left:12 sits on
+         top of the sidebar's own chart; 308 puts it just past the sidebar's
+         edge, the same relationship the desktop layout already uses. */
+      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:186px !important; }}
+      [data-testid="stSidebarCollapseButton"] {{ left:308px !important; bottom:186px !important; }}
     }}
     </style>
     """,
