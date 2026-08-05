@@ -23,6 +23,7 @@ import turbidity_model as tm
 
 FILENAME_RE = re.compile(r"Ubon_S2_(\d{8})\.tif$")
 CACHE_DIR = ".composite_cache"
+DISPLAY_CACHE_DIR = "display_rasters"
 
 
 def list_available_composites(folder="."):
@@ -147,6 +148,63 @@ def load_composite(path, max_dim=1400, strip_rows=500):
 
     rgb = np.dstack([stretch(rgb_raw[..., 0]), stretch(rgb_raw[..., 1]), stretch(rgb_raw[..., 2])])
     return rgb, turbidity_map.astype(np.float32), mask_down, bounds
+
+
+# ------------------------------------------------------- display rasters ---
+# load_composite() runs the MLP over every pixel of the full-resolution
+# province (~70M pixels, 8 bands) and then averages the predictions down to
+# the ~1300x900 grid the map actually draws. That is ~11s of inference per
+# composite, and on a cloud host it is preceded by a ~28MB Drive download of
+# the GeoTIFF - paid again for every date a visitor clicks, not just at
+# startup.
+#
+# Nothing downstream of the dashboard needs the full-resolution result, or
+# the RGB channels at all. So the downsampled output is precomputed once
+# (precompute_history.py) into a small .npz per date and shipped in the repo.
+# Only ~1% of the province is water, so the arrays compress to ~80KB each and
+# read back in ~20ms - the GeoTIFF never has to be opened, or downloaded, to
+# render the map.
+
+def display_cache_path(path: str) -> str | None:
+    """Where the precomputed display raster for `path` lives, or None if the
+    filename isn't a recognisable composite. Accepts both a local .tif path
+    and a "drive:<id>:<name>" marker, so it keys the same either way."""
+    m = FILENAME_RE.search(os.path.basename(path))
+    if not m:
+        return None
+    return os.path.join(DISPLAY_CACHE_DIR, f"Ubon_S2_{m.group(1)}.npz")
+
+
+def save_display(path: str, turbidity, mask, bounds) -> str | None:
+    """Write the display raster for `path`. Returns the file written."""
+    out = display_cache_path(path)
+    if out is None:
+        return None
+    os.makedirs(DISPLAY_CACHE_DIR, exist_ok=True)
+    np.savez_compressed(
+        out,
+        turbidity=turbidity.astype(np.float32),
+        mask=mask,
+        bounds=np.array([bounds.left, bounds.bottom, bounds.right, bounds.top], dtype=np.float64),
+    )
+    return out
+
+
+def load_display(path: str):
+    """(turbidity, mask, bounds) for one composite - the map's view of it.
+
+    Reads the precomputed raster when one exists and otherwise falls back to
+    load_composite(), so a composite added since the last precompute run is
+    still correct, just as slow as it used to be. Deliberately drops the RGB
+    channels load_composite() also returns: no caller uses them.
+    """
+    cached = display_cache_path(path)
+    if cached and os.path.exists(cached):
+        with np.load(cached) as z:
+            left, bottom, right, top = z["bounds"]
+            return z["turbidity"], z["mask"], rasterio.coords.BoundingBox(left, bottom, right, top)
+    _rgb, turbidity, mask, bounds = load_composite(ensure_local(path))
+    return turbidity, mask, bounds
 
 
 def sample_at(turbidity_map, valid_mask, bounds, lat, lon, search_radius=5):

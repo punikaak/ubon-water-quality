@@ -1,30 +1,36 @@
-"""Precompute the per-composite aggregates the dashboard's sidebar needs, so
-the deployed app doesn't have to open every composite on a cold start.
+"""Precompute everything the deployed dashboard would otherwise derive from
+the GeoTIFFs at request time. Writes two artifacts, both committed:
+
+  ubon_history.json  - the sidebar's province and per-station trend values
+  display_rasters/   - the downsampled turbidity raster the map draws
 
 Why this exists
 ---------------
-Two sidebar series - the province-wide trend and the per-station turbidity
-trend - are defined over *every* composite in range, not just the selected
-one. Computing them live means loading all of them: locally that is ~12s of
-MLP inference each; on Streamlit Community Cloud it is that plus a ~28MB
-Google Drive download each, because the cloud container has no persistent
-disk. Nine composites put a 4-6 minute blank screen in front of every cold
-visitor, and the free tier sleeps an idle app, so "cold" is the common case.
+Opening one composite costs ~11s of MLP inference over the full-resolution
+province, and on Streamlit Community Cloud it is preceded by a ~28MB Google
+Drive download, because the cloud container has no persistent disk.
 
-The aggregates themselves are tiny - one float per (date) and per
-(station, date). Writing them to a small JSON that ships in the repo turns
-that cold start into a single composite load (the selected date, which the
-map needs regardless).
+That was being paid twice over. The two sidebar series are defined over
+*every* composite in range, so drawing them live meant loading all twelve -
+a 4-6 minute blank screen on a cold visit. And the map's own raster was
+recomputed from scratch for every date a visitor clicked, so simply stepping
+along the timeline cost ~12s a step locally and far worse on the cloud.
+
+Both outputs are far smaller than their inputs: the aggregates are one float
+per date, and only ~1% of the province is water, so a display raster
+compresses to ~80KB (vs ~28MB for the GeoTIFF it came from) and loads in
+~20ms. Shipping them in the repo takes the GeoTIFFs off the render path
+entirely - the deployed app never opens or downloads one.
 
 Run this locally whenever new composites land:
 
     python precompute_history.py
 
 It reads whatever Ubon_S2_*.tif files it can see (local disk first, Drive
-otherwise) and rewrites ubon_history.json. The dashboard treats the file as
-a cache, not a source of truth: any composite date missing from it is still
-computed live, so a newly refreshed week shows up correctly before anyone
-gets around to re-running this.
+otherwise), rewrites ubon_history.json and repopulates display_rasters/.
+The dashboard treats both as caches, not sources of truth: any composite
+date missing from them is still computed live, so a newly refreshed week
+shows up correctly before anyone gets around to re-running this.
 """
 import datetime as dt
 import json
@@ -69,6 +75,10 @@ def main() -> int:
         print(f"  [{i}/{len(composites)}] {iso} ...", end="", flush=True)
         local = pc.ensure_local(path)
         _rgb, turb, mask, bounds = pc.load_composite(local)
+        # Same pass also writes the map's display raster - see
+        # province_composite.load_display() for why the dashboard reads that
+        # instead of the GeoTIFF.
+        pc.save_display(path, turb, mask, bounds)
 
         if mask.any():
             province[iso] = float(turb[mask].mean())
@@ -86,6 +96,7 @@ def main() -> int:
     with open(HISTORY_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=1, sort_keys=True)
     print(f"wrote {HISTORY_PATH} ({len(province)} dates)")
+    print(f"wrote {len(composites)} display rasters to {pc.DISPLAY_CACHE_DIR}/ - commit both")
     return 0
 
 

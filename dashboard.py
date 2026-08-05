@@ -648,8 +648,13 @@ st.markdown(
 # ---------------------------------------------------------------- data ----
 @st.cache_data(show_spinner="Loading satellite composite...")
 def load_province_composite(path: str):
-    local_path = pc.ensure_local(path)
-    return pc.load_composite(local_path)
+    """(turbidity, mask, bounds) for one composite date.
+
+    Hits the precomputed display raster shipped in the repo, so picking a
+    date costs a ~20ms file read rather than a Drive download plus ~11s of
+    full-resolution inference. See province_composite.load_display().
+    """
+    return pc.load_display(path)
 
 
 @st.cache_data(show_spinner=False)
@@ -729,7 +734,7 @@ if "picked_date" not in st.session_state or st.session_state.picked_date not in 
 picked_date = st.session_state.picked_date
 picked_path = dict(available)[picked_date]
 
-rgb, turbidity_map, valid_mask, bounds = load_province_composite(picked_path)
+turbidity_map, valid_mask, bounds = load_province_composite(picked_path)
 
 
 @st.cache_data(show_spinner=False)
@@ -765,7 +770,7 @@ def station_history(lat, lon):
         if d.isoformat() in cached:
             rows.append({"Date": pd.Timestamp(d), "NTU": cached[d.isoformat()]})
             continue
-        _, turb_map, mask, b = load_province_composite(path)
+        turb_map, mask, b = load_province_composite(path)
         val = pc.sample_at(turb_map, mask, b, lat, lon)
         if val is not None:
             rows.append({"Date": pd.Timestamp(d), "NTU": val})
@@ -785,7 +790,7 @@ def province_history():
         if d.isoformat() in cached:  # see station_history() on the fallback
             rows.append({"Date": pd.Timestamp(d), "NTU": cached[d.isoformat()]})
             continue
-        _, turb_map, mask, _bounds = load_province_composite(path)
+        turb_map, mask, _bounds = load_province_composite(path)
         if mask.any():
             rows.append({"Date": pd.Timestamp(d), "NTU": float(turb_map[mask].mean())})
     return pd.DataFrame(rows)
@@ -876,7 +881,7 @@ def district_ntu(path: str):
     except FileNotFoundError:
         return pd.DataFrame(columns=["District", "NTU"])
 
-    _rgb, turb, mask, b = load_province_composite(path)
+    turb, mask, b = load_province_composite(path)
     h, w = turb.shape
     transform = rasterio.transform.from_bounds(b.left, b.bottom, b.right, b.top, w, h)
     names = [f["properties"]["ADM2_NAME"] for f in districts["features"]]

@@ -67,17 +67,27 @@ The existing Windows Task Scheduler job (`MekongWaterQuality_WeeklyRefresh`)
 still works as a local backup/dev-time refresh - the two don't conflict,
 both just add composites to the same Drive folder.
 
-### 4. After new composites land, refresh the history cache
+### 4. After new composites land, refresh the precomputed data
 
 ```bash
-python precompute_history.py   # rewrites ubon_history.json, then commit it
+python precompute_history.py   # rewrites ubon_history.json + display_rasters/
+git add ubon_history.json display_rasters/ && git commit
 ```
 
-`ubon_history.json` holds the sidebar's province and per-station trend
-values, one float per composite date. Without it the deployed app has to
-open every composite in range to draw those two charts - each one a ~28MB
-Drive download plus ~12s of inference, so a cold visit would sit blank for
-minutes. Skipping this step is not fatal: any date missing from the file is
+One pass writes both artifacts that keep the GeoTIFFs off the render path:
+
+- `ubon_history.json` - the sidebar's province and per-station trend values,
+  one float per composite date. Those two charts span *every* composite in
+  range, so without this the app opens all of them on a cold visit.
+- `display_rasters/*.npz` - the downsampled turbidity raster the map draws,
+  one per date. Without these, every date a visitor clicks on the timeline
+  re-runs the model over the full-resolution province.
+
+Either way the underlying cost is a ~28MB Drive download plus ~11s of
+inference per composite. Precomputed, a date costs a ~80KB file read and
+~20ms - only ~1% of the province is water, so the arrays compress hard.
+
+Skipping this step is not fatal: any date missing from either artifact is
 still computed live, it just costs what it used to for that date.
 
 ### 5. The streamflow snapshot
@@ -100,11 +110,18 @@ The start date is deliberately a month before the displayed range - the
 ## Cold starts
 
 Streamlit Community Cloud sleeps an idle app, so the first visit after a
-quiet spell pays full startup cost. What that covers: one composite
-download + inference, the RID streamflow API call, and the Leaflet map
-build. Measured ~34s locally with the composite already on disk; expect
-longer on the first cloud load while the composite comes down from Drive.
-Subsequent visits hit Streamlit's cache and are immediate.
+quiet spell pays full container startup. What that still covers: the Python
+imports, listing the available composites, and the Leaflet map build.
+
+Measured locally on a fresh server process: **6.2s** to a fully painted map,
+and **~1.3s** to switch to a date not yet seen in that process. Both used to
+be ~11s worse, because each one re-ran the model over the full-resolution
+province - see step 4 above, which moved that off the request path.
+
+A warm reload (server process already up) is ~2.1s, essentially all of it
+the map build and Streamlit's own boot. Note the cloud still makes one Drive
+API call at startup to *list* what composites exist; it no longer downloads
+any of them to render.
 
 ## Why Google Drive instead of Cloud Storage
 
@@ -125,6 +142,7 @@ billing requirement, so that's the storage backend for now
 - `drive_client.py` - shared Google Drive access (dashboard read path)
 - `rid_streamflow.py` - RID streamflow API + the `mun_levels.json` snapshot it writes (see module docstring for the API's limitations)
 - `refresh_ubon_data.py` / `backfill_ubon_weekly.py` - GEE export + Drive upload/download scripts
-- `precompute_history.py` - writes `ubon_history.json`, the sidebar trend cache (see step 4)
+- `precompute_history.py` - writes `ubon_history.json` and `display_rasters/` (see step 4)
+- `display_rasters/` - precomputed map rasters, committed; what the app renders instead of the GeoTIFFs
 - `make_secrets.py` - renders local Google credentials into the Streamlit Cloud secrets block
 - `requirements.txt` - deployed-app dependencies; `requirements-dev.txt` adds what the refresh scripts need

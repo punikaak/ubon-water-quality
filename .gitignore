@@ -19,6 +19,9 @@ Figure_*.png
 ubon_water.json
 
 # Runtime cache for composites downloaded from Drive by the deployed app.
+# Not to be confused with display_rasters/, which IS committed - that one is
+# the precomputed map layer the app renders from, and shipping it is the
+# whole point (see province_composite.load_display).
 .composite_cache/
 
 # Secrets - never commit. Real values live only in Streamlit Cloud's
