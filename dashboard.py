@@ -23,6 +23,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 import geo_boundary as geo
@@ -479,20 +480,13 @@ st.markdown(
     .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
         font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
 
-    /* Streamlit Cloud's own chrome - the "Hosted with Streamlit" badge and
-       the owner avatar - injected into the page alongside the app, both
-       position:fixed in the bottom-right corner where they landed on top of
-       the timeline bar.
-       Scaled down rather than hidden: the badge is the condition of the free
-       hosting tier, and the avatar is only rendered for the signed-in owner
-       anyway (visitors never see it). Matched on href because the class
-       names are content-hashed (_viewerBadge_aycw8_23) and change whenever
-       Cloud ships a release, whereas these URLs have been stable.
-       transform-origin keeps them pinned to the corner as they shrink. */
-    a[href^="https://streamlit.io/cloud"] {{
-        transform: scale(0.6); transform-origin: bottom right; opacity: 0.8; }}
-    a[href^="https://share.streamlit.io/user/"] {{
-        transform: scale(0.7); transform-origin: bottom right; opacity: 0.8; }}
+    /* Streamlit Cloud's badge and owner avatar are NOT styled here. They live
+       in the host page above this one - Cloud serves the app in a nested
+       iframe - and a stylesheet only applies to its own document, so rules
+       written here never reached them (confirmed by transform:none on the
+       deployed page). They are repositioned by script at the end of this
+       file, which can cross that boundary because the two frames are
+       same-origin. */
 
     /* ---------------------------------------------------------- phones ---
        Everything above is sized for a desktop viewport. On a ~390px screen
@@ -1224,3 +1218,54 @@ with st.sidebar:
             f'<div class="risk-location">{station_geo.get(r["Code"], "")}</div></div>',
             unsafe_allow_html=True,
         )
+
+
+# ------------------------------------------------- cloud chrome placement ---
+# Streamlit Cloud pins its "Hosted with Streamlit" badge and the owner avatar
+# to the bottom-right of the *host* page - a document above this one, since
+# Cloud serves the app inside a nested iframe. They sit on top of whatever the
+# app draws there, which was the language switch: the badge covered it and ate
+# its taps, for anonymous visitors as much as for the owner.
+#
+# CSS from the app cannot reach them (a stylesheet only applies to its own
+# document), but the host page is same-origin with the app frame, so script
+# can. This moves both to the top of the screen and leaves them there. It does
+# not hide, shrink, or alter them - the badge stays fully visible and
+# clickable, which is the point of it being there; it just stops sitting on a
+# control. Everything is wrapped in try/catch and does nothing at all when
+# that reach isn't available (running locally, or if Cloud ever changes the
+# frame structure), so the app degrades to exactly its previous behaviour.
+#
+# Re-applied on an interval because Cloud re-renders its own chrome - on
+# reconnect, for instance - which drops inline styles set once at load.
+components.html(
+    """
+    <script>
+    (function () {
+        function place() {
+            try {
+                var d = window.top.document;
+                var els = [
+                    d.querySelector('a[href^="https://streamlit.io/cloud"]'),
+                    d.querySelector('[class*="_profileContainer"]')
+                ];
+                els.forEach(function (el) {
+                    if (!el) { return; }
+                    el.style.setProperty('top', '0px', 'important');
+                    el.style.setProperty('bottom', 'auto', 'important');
+                    el.style.setProperty('z-index', '1000', 'important');
+                    /* Trimmed a little so it reads as chrome rather than as
+                       part of the dashboard - still full text, still
+                       clickable, just less dominant over the title bar. */
+                    el.style.setProperty('transform', 'scale(0.8)', 'important');
+                    el.style.setProperty('transform-origin', 'top right', 'important');
+                });
+            } catch (e) { /* cross-origin or no host frame - leave as-is */ }
+        }
+        place();
+        setInterval(place, 2000);
+    })();
+    </script>
+    """,
+    height=0,
+)
