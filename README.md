@@ -80,6 +80,23 @@ Drive download plus ~12s of inference, so a cold visit would sit blank for
 minutes. Skipping this step is not fatal: any date missing from the file is
 still computed live, it just costs what it used to for that date.
 
+### 5. The streamflow snapshot
+
+`mun_levels.json` holds the daily Mun River stage the sidebar chart plots.
+It is committed rather than fetched live because the RID service appears to
+refuse requests from outside Thailand: the same code that works on a Thai
+connection returns nothing from Streamlit Cloud, leaving the chart reading
+"gauge service unavailable" on the deployed site only. The window is fixed
+history, so a snapshot carries no staleness risk. Regenerate it from a
+machine that can reach the service:
+
+```bash
+python -c "import datetime, rid_streamflow as r; r.save_snapshot(datetime.date(2024,10,2), datetime.date(2024,12,31))"
+```
+
+The start date is deliberately a month before the displayed range - the
+30-day averaging option needs that run-up (see `load_level_history`).
+
 ## Cold starts
 
 Streamlit Community Cloud sleeps an idle app, so the first visit after a
@@ -106,7 +123,7 @@ billing requirement, so that's the storage backend for now
 - `geo_boundary.py` - province/district/road reference layers (Earth Engine + OpenStreetMap)
 - `province_composite.py` - loads Sentinel-2 composites, from local disk or Drive
 - `drive_client.py` - shared Google Drive access (dashboard read path)
-- `rid_streamflow.py` - RID streamflow API (best-effort; see module docstring for its limitations)
+- `rid_streamflow.py` - RID streamflow API + the `mun_levels.json` snapshot it writes (see module docstring for the API's limitations)
 - `refresh_ubon_data.py` / `backfill_ubon_weekly.py` - GEE export + Drive upload/download scripts
 - `precompute_history.py` - writes `ubon_history.json`, the sidebar trend cache (see step 4)
 - `make_secrets.py` - renders local Google credentials into the Streamlit Cloud secrets block

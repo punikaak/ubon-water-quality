@@ -120,3 +120,62 @@ def level_history_between(start: dt.date, end: dt.date, timeout: float = 30.0) -
 
 def station_name(code: str) -> str:
     return MUN_STATIONS.get(code, {}).get("name", code)
+
+
+SNAPSHOT_PATH = "mun_levels.json"
+
+
+def save_snapshot(start: dt.date, end: dt.date, path: str = SNAPSHOT_PATH) -> int:
+    """Download [start, end] once and write it to `path`. Returns day count.
+
+    The dashboard's window is fixed historical range - those readings are
+    never going to change - and this service is not reachable from every
+    network the app might be deployed on (it appears to refuse requests from
+    outside Thailand, which is exactly where a cloud host sits). Shipping a
+    snapshot in the repo makes the chart independent of that, the same way
+    the satellite trends are precomputed rather than recomputed per visit.
+
+    Regenerate from a machine that can reach the service:
+        python -c "import datetime,rid_streamflow as r; \
+                   r.save_snapshot(datetime.date(2024,10,2), datetime.date(2024,12,31))"
+    """
+    import json
+
+    history = level_history_between(start, end)
+    if not history:
+        raise RuntimeError("service returned nothing - snapshot not written")
+    payload = {
+        "generated": dt.datetime.now().isoformat(timespec="seconds"),
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "gauges": {
+            code: {d.isoformat(): round(v, 3) for d, v in series}
+            for code, series in history.items()
+        },
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=1, sort_keys=True)
+    return sum(len(s) for s in history.values())
+
+
+def load_snapshot(path: str = SNAPSHOT_PATH) -> dict:
+    """{gauge_code: [(date, level_m), ...]} from the committed snapshot, or {}
+    if it isn't there or can't be read."""
+    import json
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for code, days in (payload.get("gauges") or {}).items():
+        series = []
+        for iso, value in days.items():
+            try:
+                series.append((dt.date.fromisoformat(iso), float(value)))
+            except (ValueError, TypeError):
+                continue
+        if series:
+            out[code] = sorted(series)
+    return out

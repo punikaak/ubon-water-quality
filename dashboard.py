@@ -803,13 +803,29 @@ def load_level_history(start, end, lead_days=0):
     slopes for no physical reason. One API call covers six months back
     regardless, so the lead-in is free.
 
+    Reads the committed snapshot first and only calls the live service if
+    that is missing. The window here is fixed history, so the snapshot is not
+    a staleness risk - and the service is not reachable from every network
+    (it appears to refuse foreign IPs, which is where a cloud host sits), so
+    a live call was leaving the deployed chart permanently empty while the
+    same code worked locally. See rid_streamflow.save_snapshot().
+
     Wrapped so a network failure degrades to an empty frame ("no data")
     rather than taking the page down.
     """
-    try:
-        history = rid.level_history_between(start - dt.timedelta(days=lead_days), end)
-    except Exception:
-        return pd.DataFrame(columns=["Date", "Gauge", "Level"])
+    fetch_from = start - dt.timedelta(days=lead_days)
+    history = rid.load_snapshot()
+    if history:
+        history = {
+            code: [(d, v) for d, v in series if fetch_from <= d <= end]
+            for code, series in history.items()
+        }
+        history = {c: s for c, s in history.items() if s}
+    if not history:
+        try:
+            history = rid.level_history_between(fetch_from, end)
+        except Exception:
+            return pd.DataFrame(columns=["Date", "Gauge", "Level"])
     rows = [
         {"Date": pd.Timestamp(d), "Gauge": code, "Level": level}
         for code, series in history.items()
