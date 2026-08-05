@@ -78,6 +78,10 @@ DEFAULT_BASEMAP = "Light"
 COLOR_PREDICTED = "#2a78d6"
 COLOR_ACTUAL = "#eb6834"
 GAUGE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
+# Averaging windows offered for the streamflow chart, shortest first. Rolling
+# averages rather than N-day buckets: over a 61-day range, 30-day buckets give
+# two points and a single-month view would give one, which is not a trend.
+SMOOTH_WINDOWS = [7, 14, 30]
 
 P = dict(
     app_bg="#ffffff", sidebar_bg="#fafbfc", text="#2b2b3a", muted="#6b7684",
@@ -120,10 +124,20 @@ TRANSLATIONS = {
         "water_level": "Water level",
         "streamflow_unavailable": "Streamflow gauge service unavailable right now.",
         "streamflow_note": (
-            "Daily stage from the RID Lower-NE gauges on the Mun River. The service returns "
-            "no discharge (m^3/s) figure for these gauges, so water level is shown - it is "
-            "the quantity actually measured."
+            "Daily stage from the RID Lower-NE gauges on the Mun River, downloaded for "
+            "01 Nov - 31 Dec 2024. The service publishes no discharge (m^3/s) figure for "
+            "these gauges - the field exists but is empty on every day in the range - so "
+            "water level is shown, being the quantity actually measured. The faint line is "
+            "the daily reading; the solid line is the average."
         ),
+        "month_label": "Month",
+        "month_all": "Nov-Dec",
+        "month_nov": "Nov",
+        "month_dec": "Dec",
+        "smooth_label": "Averaging window",
+        "smooth_days": "{n}-day",
+        "daily_reading": "Daily",
+        "avg_reading": "{n}-day average",
         "level_m": "Level (m)",
         "gauge": "Gauge",
         "district_ranking": "District Ranking",
@@ -167,8 +181,18 @@ TRANSLATIONS = {
         "streamflow_unavailable": "ไม่สามารถเชื่อมต่อระบบสถานีวัดน้ำได้ในขณะนี้",
         "streamflow_note": (
             "ระดับน้ำรายวันจากสถานีวัดน้ำแม่น้ำมูล กรมชลประทาน (สำนักงานอุทกวิทยาภาคตะวันออกเฉียงเหนือตอนล่าง) "
-            "ระบบไม่ได้ส่งค่าอัตราการไหล (ลบ.ม./วินาที) สำหรับสถานีเหล่านี้ จึงแสดงเป็นระดับน้ำซึ่งเป็นค่าที่วัดได้จริง"
+            "ดึงข้อมูลช่วง 1 พ.ย. - 31 ธ.ค. 2567 ระบบไม่ได้ส่งค่าอัตราการไหล (ลบ.ม./วินาที) สำหรับสถานีเหล่านี้ "
+            "โดยมีฟิลด์ข้อมูลแต่ว่างเปล่าทุกวันในช่วงนี้ จึงแสดงเป็นระดับน้ำซึ่งเป็นค่าที่วัดได้จริง "
+            "เส้นจางคือค่ารายวัน เส้นทึบคือค่าเฉลี่ย"
         ),
+        "month_label": "เดือน",
+        "month_all": "พ.ย.-ธ.ค.",
+        "month_nov": "พ.ย.",
+        "month_dec": "ธ.ค.",
+        "smooth_label": "ช่วงเฉลี่ย",
+        "smooth_days": "{n} วัน",
+        "daily_reading": "รายวัน",
+        "avg_reading": "เฉลี่ย {n} วัน",
         "level_m": "ระดับน้ำ (ม.)",
         "gauge": "สถานีวัดน้ำ",
         "district_ranking": "อันดับความขุ่นรายอำเภอ",
@@ -769,14 +793,21 @@ def load_provinces_for_display(tolerance=0.02):
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
-def load_level_history(start, end):
+def load_level_history(start, end, lead_days=0):
     """Daily Mun River stage over [start, end] as a tidy DataFrame.
+
+    `lead_days` extends the fetch *earlier* than `start` without widening what
+    a caller then displays. A rolling average needs that many days already
+    behind the first plotted point, otherwise the left-hand end of every
+    smoothed line is either blank or computed from a shrinking window and
+    slopes for no physical reason. One API call covers six months back
+    regardless, so the lead-in is free.
 
     Wrapped so a network failure degrades to an empty frame ("no data")
     rather than taking the page down.
     """
     try:
-        history = rid.level_history_between(start, end)
+        history = rid.level_history_between(start - dt.timedelta(days=lead_days), end)
     except Exception:
         return pd.DataFrame(columns=["Date", "Gauge", "Level"])
     rows = [
@@ -1153,30 +1184,67 @@ with st.sidebar:
     # --- Streamflow / water level, RID Mun River gauges ---
     st.markdown(f"#### {T['streamflow_heading']}")
     st.caption(T["window_label"])
-    levels = load_level_history(RANGE_START, RANGE_END)
+
+    # Fetched with a 30-day run-up so the widest averaging window is already
+    # full at the first plotted day - see load_level_history(lead_days=).
+    levels = load_level_history(RANGE_START, RANGE_END, lead_days=SMOOTH_WINDOWS[-1])
     if levels.empty:
         st.markdown(
             f'<div class="sb-sub">{T["streamflow_unavailable"]}</div>', unsafe_allow_html=True,
         )
     else:
-        gauges = sorted(levels["Gauge"].unique())
+        # required=True: without it a segmented control is clearable, and
+        # clicking a choice could leave *nothing* selected - the buttons all
+        # went unlit while the chart silently fell back to the full range.
+        # The `or` fallbacks stay as a guard for the very first render.
+        month_choices = {T["month_all"]: None, T["month_nov"]: 11, T["month_dec"]: 12}
+        sel_month = st.segmented_control(
+            T["month_label"], list(month_choices), default=T["month_all"], key="flow_month",
+            required=True,
+        ) or T["month_all"]
+        sel_window = st.segmented_control(
+            T["smooth_label"], SMOOTH_WINDOWS, default=SMOOTH_WINDOWS[0], key="flow_window",
+            required=True, format_func=lambda n: T["smooth_days"].format(n=n),
+        ) or SMOOTH_WINDOWS[0]
+
+        # Average over the full fetched series (run-up included) and only then
+        # cut to the month on show, so switching month changes the view, never
+        # the arithmetic behind a given day's point.
+        levels = levels.sort_values("Date")
+        levels["Smooth"] = levels.groupby("Gauge")["Level"].transform(
+            lambda s: s.rolling(sel_window, min_periods=1).mean()
+        )
+        shown = levels[levels["Date"] >= pd.Timestamp(RANGE_START)]
+        month = month_choices[sel_month]
+        if month is not None:
+            shown = shown[shown["Date"].dt.month == month]
+
+        gauges = sorted(shown["Gauge"].unique())
+        colour = alt.Color(
+            "Gauge:N",
+            scale=alt.Scale(domain=gauges, range=GAUGE_COLORS[: len(gauges)]),
+            legend=alt.Legend(title=None, orient="bottom"),
+        )
+        base = alt.Chart(shown).encode(
+            x=alt.X("Date:T", title=None, axis=alt.Axis(format="%d %b")), color=colour,
+        )
+        y_axis = alt.Y("Level:Q", title=T["level_m"], scale=alt.Scale(zero=False))
+        # Raw daily kept underneath at low opacity: the averaged line is the
+        # trend, but without the reading behind it there is no way to see how
+        # much smoothing the chosen window is doing.
+        daily = base.mark_line(strokeWidth=1, opacity=0.28).encode(y=y_axis)
+        smooth = base.mark_line(strokeWidth=2.5).encode(
+            y=alt.Y("Smooth:Q", title=T["level_m"], scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("Gauge:N", title=T["gauge"]),
+                alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
+                alt.Tooltip("Level:Q", title=T["daily_reading"], format=".2f"),
+                alt.Tooltip("Smooth:Q",
+                            title=T["avg_reading"].format(n=sel_window), format=".2f"),
+            ],
+        )
         flow_chart = (
-            alt.Chart(levels)
-            .mark_line(strokeWidth=2)
-            .encode(
-                x=alt.X("Date:T", title=None, axis=alt.Axis(format="%d %b")),
-                y=alt.Y("Level:Q", title=T["level_m"], scale=alt.Scale(zero=False)),
-                color=alt.Color(
-                    "Gauge:N",
-                    scale=alt.Scale(domain=gauges, range=GAUGE_COLORS[: len(gauges)]),
-                    legend=alt.Legend(title=None, orient="bottom"),
-                ),
-                tooltip=[
-                    alt.Tooltip("Gauge:N", title=T["gauge"]),
-                    alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
-                    alt.Tooltip("Level:Q", title=T["water_level"], format=".2f"),
-                ],
-            )
+            (daily + smooth)
             .properties(height=165)
             .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7", tickColor="#c3c2b7",
                             labelColor="#52514e", titleColor="#52514e", labelFontSize=10)
