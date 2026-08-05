@@ -146,6 +146,21 @@ _CSS = """
 .leaflet-control-zoom { border-radius:12px !important; overflow:hidden;
     box-shadow:0 2px 14px rgba(0,0,0,0.22) !important; border:none !important; }
 .leaflet-control-zoom a { font-family:'Poppins',sans-serif !important; }
+/* The OSM credit stays - ODbL requires attribution - but it does not need to
+   be a full-contrast bar competing with the data, so it is toned down.
+   position:fixed for the same reason as the zoom corner above: Leaflet
+   anchors this to the map container, whose bottom edge sits ~28px below the
+   visible viewport (the iframe starts 32px down the page but is sized from
+   the full viewport height), so the credit rendered off-screen entirely -
+   which does not satisfy the licence. Fixed re-anchors it to what is
+   actually visible; the offset lifts it clear of the timeline bar. */
+.leaflet-bottom.leaflet-right { position:fixed !important;
+    bottom:132px !important; right:0 !important; }
+.leaflet-control-attribution { font-family:'Poppins',sans-serif !important;
+    font-size:9px !important; background:rgba(255,255,255,0.55) !important;
+    padding:1px 6px !important; border-radius:6px 0 0 6px !important;
+    color:#7b8794 !important; }
+.leaflet-control-attribution a { color:#66707c !important; text-decoration:none !important; }
 .wq-panel.wq-open { display:block; }
 .wq-panel-head { display:flex; align-items:center; gap:8px; font-weight:700; font-size:0.95rem;
     color:#1e3a4a; padding-bottom:8px; margin-bottom:8px; border-bottom:2px solid #eef0f2; }
@@ -188,6 +203,8 @@ _CSS = """
      because this anchors to the iframe's own viewport, which starts ~32px
      down the page and runs past its bottom edge. */
   .leaflet-bottom.leaflet-left { bottom:212px !important; left:10px !important; }
+  /* Taller timeline bar here (two rows), so the credit needs lifting further. */
+  .leaflet-bottom.leaflet-right { bottom:158px !important; }
 }
 </style>
 """
@@ -318,6 +335,22 @@ def add_zoom_control(fmap):
     repositioned, so this adds it directly via the Leaflet JS API instead."""
     map_var = fmap.get_name()
     js = f"(function () {{ L.control.zoom({{position: 'bottomleft'}}).addTo({map_var}); }})();"
+    _RawScript(js).add_to(fmap)
+
+
+def compact_attribution(fmap):
+    """Trim the map credit to just what the tile data's licence requires.
+
+    The OpenStreetMap credit itself has to stay: OSM data is ODbL-licensed
+    and attribution is a condition of use, not a default we can switch off.
+    Leaflet's own "Leaflet" prefix is a courtesy link with no such condition,
+    so it goes, along with the separator it brought with it. What's left is
+    styled down in _CSS to a small, quiet line instead of the default
+    high-contrast bar that was colliding with the timeline on a phone.
+    """
+    map_var = fmap.get_name()
+    js = (f"(function () {{ if ({map_var}.attributionControl) "
+          f"{{ {map_var}.attributionControl.setPrefix(''); }} }})();")
     _RawScript(js).add_to(fmap)
 
 

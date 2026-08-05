@@ -939,6 +939,7 @@ map_controls.add_layer_rail(
 )
 map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
 map_controls.add_zoom_control(fmap)
+map_controls.compact_attribution(fmap)
 
 # height is generously large; the CSS rule on this iframe (see <style> above)
 # clips/fills it to the actual viewport, so this just needs to cover the tallest
