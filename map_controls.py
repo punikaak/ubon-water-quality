@@ -216,10 +216,10 @@ _CSS = """
 .wq-info-fab { position:fixed; left:24px; bottom:270px; z-index:1000;
     width:34px; height:34px; padding:0; border:none; border-radius:50%;
     cursor:pointer; display:flex; align-items:center; justify-content:center;
-    background:#12161c; color:#fff; box-shadow:0 2px 14px rgba(0,0,0,0.22);
+    background:#fff; color:#12161c; box-shadow:0 2px 14px rgba(0,0,0,0.22);
     transition:background .15s; }
 .wq-info-fab svg { width:19px; height:19px; }
-.wq-info-fab:hover { background:#33414f; }
+.wq-info-fab:hover { background:#eef1f4; }
 
 /* --------------------------------------------------------- info modal ---
    A centred modal rather than another fly-out panel: the data-source text
