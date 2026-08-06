@@ -151,14 +151,34 @@ borders by a few hundred metres, so with both layers shown, a province edge
 and the district edges running along it do not sit exactly on top of each
 other.
 
-### Cost
+### Simplification, and its cost
 
-The district layer is the largest thing the app ships, and streamlit-folium
-reserialises the whole map on every rerun, so it is paid on each interaction.
-Measured: map payload 717KB → 2065KB, and a date change 1.35s → 2.05s. If you
-want that back, `CONTEXT_TOLERANCE` in `import_shapefiles.py` is the knob -
-the whole country at 0.0005 would be 8.9MB, at 0.005 1.6MB, at the 0.01 used
-1.1MB. Ubon has its own finer `FOCUS_TOLERANCE` and is unaffected by it.
+Both layers are simplified before being written, because streamlit-folium
+reserialises the whole map on every rerun, so every byte is paid on each
+interaction. The tolerance is **proportional to each polygon's own area**,
+not a fixed distance - `SHAPE_TOLERANCE_FRACTION` in `import_shapefiles.py`.
+
+That matters because Thai amphoe span four orders of magnitude in area. A
+fixed 0.01° (~1.1km) leaves a 5000km² rural amphoe untouched and destroys
+Bangkok's khet, which are 6-28km²: measured against the source, the worst
+district came out at **30%** IoU and most of Bangkok's under 75%. Tightening
+the fixed value does not fix it - 0.001° costs 5.6MB and still leaves the
+worst at 85%. Scaling by `sqrt(area)` holds every feature to the same
+*relative* fidelity whatever its size.
+
+Measured against the shapefiles after the change:
+
+| | worst | median | below 90% |
+|---|---|---|---|
+| 930 districts | 93.8% | 97.4% | 0 |
+| 77 provinces | 94.2% | 97.3% | 0 |
+
+Ubon and its 25 districts ignore the proportional rule and take a fixed, much
+finer `FOCUS_TOLERANCE` - they are the subject of the map, not context.
+
+The price: map payload 717KB → 3111KB, and a date change roughly 1.3s → 2s.
+`SHAPE_TOLERANCE_FRACTION` is the single knob if that is the wrong trade;
+raising it shrinks the files and lowers the fidelity table above.
 
 ### Details that only matter if you regenerate
 

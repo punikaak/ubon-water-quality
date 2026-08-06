@@ -1249,7 +1249,10 @@ try:
 except FileNotFoundError as e:
     st.info(str(e))
 
-# --- Districts, country-wide (off by default - secondary detail) ---
+# --- Districts, country-wide. On by default: it is now a full national layer
+# rather than the secondary detail it was when it held one province, and
+# leaving it switched off meant a visitor never saw it without hunting through
+# the rail for a toggle. ---
 district_def = None
 try:
     districts_geojson = geo.load_districts()
@@ -1260,10 +1263,10 @@ try:
         style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
                                    "fill": False, "fillOpacity": 0},
         tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
-        show=False,
+        show=True,
     )
     district_layer.add_to(fmap)
-    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": False}
+    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
 except FileNotFoundError:
     pass
 

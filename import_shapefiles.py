@@ -38,6 +38,7 @@ gitignored on purpose (see .gitignore).
 """
 import glob
 import json
+import math
 import os
 import re
 import sys
@@ -60,18 +61,26 @@ FOCUS_PROVINCE = "UBON RATCHATHANI"
 PROVINCES_OUT = "thailand_provinces.geojson"
 DISTRICTS_OUT = "thailand_districts.geojson"
 
-# Degrees. Two tiers, because the country-wide layers are ~930 districts and
-# 77 provinces and every byte of them is re-sent to the browser on each
-# Streamlit rerun (streamlit-folium reserialises the whole map), while only
-# Ubon is ever looked at closely:
-#   Ubon and its districts are what the reader actually inspects, and nothing
-#   simplifies them again downstream, so 0.0005 (~55m) is what is seen.
-#   Everything else is context at country zoom, where 0.01 (~1.1km) is around
-#   a pixel.
-# Measured whole-country cost: 0.0005 everywhere would be 8.9MB, 0.005 1.6MB,
-# this split 1.1MB.
+# Simplification has to happen - every byte of these layers is re-sent to the
+# browser on each Streamlit rerun, since streamlit-folium reserialises the
+# whole map - but the tolerance is proportional to each polygon's own size
+# rather than a fixed distance.
+#
+# A fixed distance is the obvious thing and it is wrong here, because Thai
+# amphoe span four orders of magnitude in area. At a fixed 0.01deg (~1.1km),
+# a 5000km2 rural amphoe is untouched while Bangkok's khet - 6 to 28km2 - are
+# mangled: measured against the source, the worst district came out at 30%
+# IoU and most of Bangkok's under 75%. Tightening the fixed value does not
+# fix it either; 0.001 costs 5.6MB and still leaves the worst at 85%.
+#
+# Scaling by sqrt(area) holds every feature to the same *relative* fidelity
+# whatever its size. Measured over all 930 amphoe: worst 93.8%, median 97.4%,
+# for 1.8MB.
+SHAPE_TOLERANCE_FRACTION = 0.02
+# Ubon and its districts are the subject of this map rather than context, so
+# they get a fixed fine tolerance instead - finer than the rule above would
+# hand them.
 FOCUS_TOLERANCE = 0.0005
-CONTEXT_TOLERANCE = 0.01
 
 # The old "minor district" designation. Every one of these was upgraded to a
 # full amphoe years ago; where a dataset still carries the prefix, putting it
@@ -150,6 +159,13 @@ def clean_th(raw: str) -> str:
     return s
 
 
+def tolerance_for(geom, is_focus):
+    """Simplification tolerance for one polygon - see SHAPE_TOLERANCE_FRACTION."""
+    if is_focus:
+        return FOCUS_TOLERANCE
+    return math.sqrt(geom.area) * SHAPE_TOLERANCE_FRACTION
+
+
 def to_wgs84(geom, src_crs):
     if src_crs == DST_CRS:
         return geom
@@ -209,8 +225,8 @@ def build_districts(path, names_by_code):
         if not geom.is_valid:
             geom = geom.buffer(0)
         geom = to_wgs84(geom, crs)
-        tol = FOCUS_TOLERANCE if prov_en.upper() == FOCUS_PROVINCE else CONTEXT_TOLERANCE
-        geom = geom.simplify(tol, preserve_topology=True)
+        geom = geom.simplify(tolerance_for(geom, prov_en.upper() == FOCUS_PROVINCE),
+                             preserve_topology=True)
         if geom.is_empty:
             continue
         name_en, name_th = labels[code]
@@ -239,8 +255,8 @@ def build_provinces(path):
         if not geom.is_valid:
             geom = geom.buffer(0)
         geom = to_wgs84(geom, crs)
-        tol = FOCUS_TOLERANCE if name_en.upper() == FOCUS_PROVINCE else CONTEXT_TOLERANCE
-        geom = geom.simplify(tol, preserve_topology=True)
+        geom = geom.simplify(tolerance_for(geom, name_en.upper() == FOCUS_PROVINCE),
+                             preserve_topology=True)
         if geom.is_empty:
             continue
         features.append({
