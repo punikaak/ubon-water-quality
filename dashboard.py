@@ -208,15 +208,6 @@ TRANSLATIONS = {
             "every day in the range - so water level is shown, being the quantity actually "
             "measured."
         ),
-        "info_src_boundaries": (
-            "<b>Administrative boundaries:</b> Thai administrative shapefiles held with this "
-            "project - all 77 provinces, and Ubon Ratchathani's 25 districts built by merging "
-            "the subdistrict (tambon) polygons into their amphoe. Reprojected from UTM zone 47N."
-        ),
-        "info_src_basemaps": (
-            "<b>Base maps:</b> CARTO (Light, Dark), OpenStreetMap (Classic), OpenTopoMap "
-            "(Terrain) and Esri World Imagery (Satellite)."
-        ),
         "info_src_coverage": (
             "<b>Coverage:</b> Weekly composites across {window}. Heavy cloud on a given week "
             "can leave gaps in that date's water mask."
@@ -315,16 +306,6 @@ TRANSLATIONS = {
             "ทั้งนี้ระบบไม่ได้เผยแพร่ค่าอัตราการไหล (ลบ.ม./วินาที) ของสถานีเหล่านี้ "
             "โดยมีช่องข้อมูลแต่ว่างเปล่าทุกวันในช่วงที่แสดง จึงแสดงระดับน้ำ "
             "ซึ่งเป็นค่าที่ตรวจวัดจริงแทน"
-        ),
-        "info_src_boundaries": (
-            "<b>ขอบเขตการปกครอง:</b> ไฟล์รูปร่าง (shapefile) เขตการปกครองของไทยที่จัดเก็บไว้กับโครงการนี้ "
-            "ครอบคลุมทั้ง 77 จังหวัด และ 25 อำเภอของจังหวัดอุบลราชธานี "
-            "ซึ่งสร้างขึ้นโดยการรวมขอบเขตระดับตำบลเข้าเป็นอำเภอ "
-            "ข้อมูลถูกแปลงพิกัดจากระบบ UTM โซน 47N"
-        ),
-        "info_src_basemaps": (
-            "<b>แผนที่ฐาน:</b> CARTO (สว่าง, มืด), OpenStreetMap (คลาสสิก), "
-            "OpenTopoMap (ภูมิประเทศ) และ Esri World Imagery (ภาพถ่ายดาวเทียม)"
         ),
         "info_src_coverage": (
             "<b>ช่วงข้อมูล:</b> ภาพรวมรายสัปดาห์ ระหว่าง {window} "
@@ -877,8 +858,6 @@ def build_info_html():
             r2=tm.VALIDATION_R2, rmse=tm.VALIDATION_RMSE, n=tm.VALIDATION_N),
         T["info_src_stations"],
         T["info_src_streamflow"],
-        T["info_src_boundaries"],
-        T["info_src_basemaps"],
         T["info_src_coverage"].format(window=T["window_label"]),
     ]
     return (
