@@ -9,6 +9,9 @@ all export tasks up front (GEE runs them concurrently server-side), then
 polls and downloads each as it finishes.
 
 Run manually:  python backfill_ubon_weekly.py
+
+Needs core.STUDY_AREA set first - see refresh_ubon_data.py. The FAO/GAUL
+province boundary this used to build its own footprint from is gone.
 """
 import datetime as dt
 import io
@@ -36,8 +39,9 @@ def week_windows(start, end, step_days):
 
 def submit_all():
     core.init_ee()
-    provinces = ee.FeatureCollection("FAO/GAUL/2015/level1")
-    ubon = provinces.filter(ee.Filter.eq("ADM1_NAME", "Ubon Ratchathani"))
+    # Same footprint as the weekly refresh - set core.STUDY_AREA, which
+    # replaced the FAO/GAUL province filter this used to build itself.
+    ubon = core.study_area()
 
     tasks = []
     for start, end in week_windows(START, END, WINDOW_DAYS):
@@ -60,7 +64,7 @@ def submit_all():
             fileNamePrefix=label,
             folder=core.DRIVE_FOLDER_NAME,
             scale=core.EXPORT_SCALE,
-            region=ubon.geometry(),
+            region=ubon,  # an ee.Geometry now, not a FeatureCollection
             maxPixels=1e13,
             fileFormat="GeoTIFF",
         )

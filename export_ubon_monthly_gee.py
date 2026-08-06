@@ -14,8 +14,10 @@ keeps the ORIGINAL definition. The JS script also only computed NDWI + NDSSI;
 the model needs all 8 features (B2,B3,B4,B8,NDWI,MNDWI,NDTI,NDSSI), so B11 and
 the missing indices are added.
 
-Boundary: FAO/GAUL/2015/level1 (official UN dataset, more authoritative than
-the OpenStreetMap boundary geo_boundary.py falls back to).
+Study area: supplied by hand, see STUDY_AREA below. It was FAO/GAUL/2015
+level1 filtered to Ubon Ratchathani; this project no longer holds or fetches
+administrative boundary data from any source, so there is nothing left to
+derive a footprint from.
 
 TWO EXPORT MODES:
   - "rolling" (default): composite of the most recent WINDOW_DAYS days, for a
@@ -46,10 +48,24 @@ except Exception:
     ee.Initialize(project="gee-training-498303")
 
 # =========================================================================
-# 1. Study area: Ubon Ratchathani province (FAO/GAUL - official UN boundary)
+# 1. Study area - MUST BE SET BEFORE RUNNING
 # =========================================================================
-provinces = ee.FeatureCollection("FAO/GAUL/2015/level1")
-ubon = provinces.filter(ee.Filter.eq("ADM1_NAME", "Ubon Ratchathani"))
+# This was FAO/GAUL/2015 level 1 filtered to Ubon Ratchathani. That is
+# administrative boundary data, and this project no longer holds or fetches
+# any, so the footprint has to be supplied here:
+#
+#     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+#
+# Left unset rather than defaulted to some rectangle. A wrong footprint does
+# not fail - it exports real imagery of the wrong ground.
+STUDY_AREA = None
+
+if STUDY_AREA is None:
+    raise SystemExit(
+        "STUDY_AREA is not set. This script has no boundary data to fall back on - "
+        "set STUDY_AREA above to the ee.Geometry you want exported."
+    )
+ubon = STUDY_AREA
 
 # =========================================================================
 # 2. Cloud/shadow masking (SCL) + water-only masking (NDWI), all 8 model
@@ -94,7 +110,7 @@ def export_composite(image, name):
         fileNamePrefix=name,
         folder=DRIVE_FOLDER,
         scale=10,
-        region=ubon.geometry(),
+        region=ubon,  # an ee.Geometry now, not a FeatureCollection
         maxPixels=1e13,
         fileFormat="GeoTIFF",
     )

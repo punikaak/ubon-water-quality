@@ -7,7 +7,11 @@ scopes include Drive access), so no separate Drive auth is needed.
 
 Run manually:  python refresh_ubon_data.py
 Meant to be re-run on a schedule (e.g. every 7 days) to keep the dashboard's
-province-wide turbidity layer current.
+area-wide turbidity layer current.
+
+Before the first run you must set STUDY_AREA below. It used to be derived from
+FAO/GAUL province boundaries; this project no longer carries or fetches any
+administrative boundary data, so the export footprint has to be supplied.
 """
 import datetime as dt
 import io
@@ -29,6 +33,28 @@ EXPORT_SCALE = 20  # meters; full 10m province-wide export is very large (see re
 WINDOW_DAYS = 7
 MAX_LOOKBACK_DAYS = 35
 LATEST_POINTER = "ubon_latest_composite.txt"
+
+# The footprint to composite, clip and export. This used to be FAO/GAUL/2015
+# level 1 filtered to Ubon Ratchathani - administrative boundary data, which
+# this project no longer holds or fetches from anywhere. Set it before running:
+#
+#     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+#
+# Left unset rather than defaulted to some rectangle. A wrong footprint does
+# not fail - it exports real imagery of the wrong ground, and the dashboard
+# would render it without complaint.
+STUDY_AREA = None
+
+
+def study_area():
+    """The export footprint, or a clear failure if none has been set."""
+    if STUDY_AREA is None:
+        raise RuntimeError(
+            "STUDY_AREA is not set. This script has no boundary data to fall back "
+            "on - see the note beside STUDY_AREA at the top of refresh_ubon_data.py "
+            "and set it to the ee.Geometry you want exported."
+        )
+    return STUDY_AREA
 
 
 def init_ee():
@@ -64,8 +90,7 @@ def process_s2(image):
 
 
 def build_composite(end_date):
-    provinces = ee.FeatureCollection("FAO/GAUL/2015/level1")
-    ubon = provinces.filter(ee.Filter.eq("ADM1_NAME", "Ubon Ratchathani"))
+    ubon = study_area()
 
     lookback = WINDOW_DAYS
     while lookback <= MAX_LOOKBACK_DAYS:
@@ -101,7 +126,10 @@ def export_and_download(label):
         fileNamePrefix=filename,
         folder=DRIVE_FOLDER_NAME,
         scale=EXPORT_SCALE,
-        region=ubon.geometry(),
+        # An ee.Geometry, so passed straight through - this was
+        # ubon.geometry() back when the study area was a FeatureCollection
+        # filtered out of FAO/GAUL.
+        region=ubon,
         maxPixels=1e13,
         fileFormat="GeoTIFF",
     )

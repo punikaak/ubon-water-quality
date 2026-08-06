@@ -4,12 +4,15 @@ Sentinel-2 -> MLP (calibrated) turbidity map, rendered full-bleed with a
 fold-out control rail (legend, layer toggles, basemap picker) styled after
 ADPC's Air4Laos dashboard.
 
-The left sidebar is a fixed situation overview: latest province-wide
-turbidity, a per-station turbidity trend, daily Mun River water level from
-the RID gauges, districts ranked by turbidity with a risk class, and the
-station list. The headline figure, district ranking and map markers all
-follow whichever composite date is selected on the map's timeline; the two
-trend charts always cover the full analysis window (RANGE_START..RANGE_END).
+The left sidebar is a fixed situation overview: latest area-wide turbidity, a
+per-station turbidity trend, daily Mun River water level from the RID gauges,
+and the station list. The headline figure and the map markers follow whichever
+composite date is selected on the map's timeline; the two trend charts always
+cover the full analysis window (RANGE_START..RANGE_END).
+
+The map draws no administrative boundaries. This project holds no province or
+district geometry at all, so there is none to draw and none to compute with -
+see geo_boundary.py.
 
 Run with:  streamlit run dashboard.py
 """
@@ -37,7 +40,6 @@ st.set_page_config(page_title="Mekong Water Quality", layout="wide")
 
 VALIDATION_CSV = "Sentinel2_Extract_Ubon_New.csv"
 HISTORY_CACHE = "ubon_history.json"  # written by precompute_history.py
-FOCUS_PROVINCE = "Ubon Ratchathani"
 
 # This dashboard's original analysis window - composites outside this range
 # (e.g. from the ongoing weekly refresh automation) are excluded so the
@@ -46,19 +48,9 @@ RANGE_START = dt.date(2024, 11, 1)
 RANGE_END = dt.date(2024, 12, 31)
 
 # Actual on-map symbol colors, reused so the legend and the layer-toggle
-# panel never drift out of sync with what's really drawn on the map.
-PROVINCE_LINE_COLOR = "#9aa3ad"
-# The highlight around Ubon itself, drawn heavier than the other provinces'
-# outlines. Black rather than a hue: the turbidity overlay it encloses is
-# itself a colour scale, so a coloured boundary competed with the data for
-# attention and, at the orange end of that scale, blended into it.
-PROVINCE_FOCUS_COLOR = "#000000"
-# Lighter and thinner than the province line above it, not darker. The
-# district layer is every amphoe in Thailand - 930 of them - and it used to be
-# the darker of the two, dashed: at country zoom that reads as a grey haze
-# with the province borders lost inside it. Subdividing lines should sit
-# under the lines they subdivide.
-DISTRICT_LINE_COLOR = "#c2c8d0"
+# panel never drift out of sync with what's really drawn on the map. Only the
+# station markers are left to colour - the province and district line colours
+# that used to sit here went with the boundary data.
 STATION_STROKE_COLOR = "#2b2b3a"
 HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
 
@@ -109,14 +101,10 @@ TRANSLATIONS = {
         "no_coverage": "No composite coverage at this station's location.",
         "legend_layers": "Layers",
         "legend_turbidity_levels": "Turbidity Levels",
-        "legend_province": "Province boundary",
-        "legend_district": "District boundary",
         "legend_pcd_stations": "PCD stations",
         "legend_caption": "General reference scale for this dashboard, not an official Thai PCD standard.",
         "legend_label": "Legend",
         "pcd_stations_label": "PCD Stations",
-        "province_label": "Province",
-        "district_label": "District",
         "turbidity_label": "Turbidity",
         "basemap_label": "Base Map",
         "pcd_dept": "PCD - Thailand Pollution Control Department",
@@ -149,9 +137,6 @@ TRANSLATIONS = {
         "avg_reading": "{n}-day average",
         "level_m": "Level (m)",
         "gauge": "Gauge",
-        "district_ranking": "District Ranking",
-        "district_ranking_note": "Mean turbidity of water pixels within each district, highest first.",
-        "no_districts": "District boundaries not available.",
         "risk": "Risk",
         "window_label": "01 Nov - 31 Dec 2024",
         # --- Information modal. The {…} fields are filled from the model
@@ -223,14 +208,10 @@ TRANSLATIONS = {
         "no_coverage": "ไม่มีข้อมูลดาวเทียมครอบคลุมตำแหน่งสถานีนี้",
         "legend_layers": "ชั้นข้อมูล",
         "legend_turbidity_levels": "ระดับความขุ่น",
-        "legend_province": "ขอบเขตจังหวัด",
-        "legend_district": "ขอบเขตอำเภอ",
         "legend_pcd_stations": "สถานีคุณภาพน้ำ",
         "legend_caption": "ค่าอ้างอิงทั่วไปสำหรับแดชบอร์ดนี้ ไม่ใช่มาตรฐานทางการของกรมควบคุมมลพิษ",
         "legend_label": "คำอธิบาย",
         "pcd_stations_label": "สถานีคุณภาพน้ำ",
-        "province_label": "จังหวัด",
-        "district_label": "อำเภอ",
         "turbidity_label": "ความขุ่น",
         "basemap_label": "แผนที่ฐาน",
         "pcd_dept": "คพ. - กรมควบคุมมลพิษ",
@@ -262,9 +243,6 @@ TRANSLATIONS = {
         "avg_reading": "เฉลี่ย {n} วัน",
         "level_m": "ระดับน้ำ (ม.)",
         "gauge": "สถานีวัดน้ำ",
-        "district_ranking": "อันดับความขุ่นรายอำเภอ",
-        "district_ranking_note": "ค่าเฉลี่ยความขุ่นของพื้นที่น้ำในแต่ละอำเภอ เรียงจากมากไปน้อย",
-        "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
         "risk": "ความเสี่ยง",
         "window_label": "1 พ.ย. - 31 ธ.ค. 2567",
         "popup_subdistrict": "ตำบล",
@@ -652,14 +630,6 @@ st.markdown(
     body.wq-modal-open [data-testid="stSidebarCollapseButton"] {{
         visibility: hidden !important; }}
 
-    /* Ranked district rows. */
-    .rank-row {{ display:flex; align-items:center; gap:8px; padding:5px 0 0 0; font-size:0.8rem; }}
-    .rank-num {{ width:18px; color:{P['muted']}; font-size:0.72rem; flex-shrink:0; }}
-    .rank-name {{ flex:1; }}
-    .rank-ntu {{ font-weight:700; }}
-    .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
-        font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
-
     /* Streamlit Cloud's badge and owner avatar are NOT styled here. They live
        in the host page above this one - Cloud serves the app in a nested
        iframe - and a stylesheet only applies to its own document, so rules
@@ -829,9 +799,9 @@ def turbidity_overlay_rgba(turbidity_map, water_mask):
 
 
 def build_legend_html():
+    # Stations are the only vector layer left - the boundary rows that used to
+    # head this list went with the boundary data itself.
     layer_rows = (
-        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{PROVINCE_LINE_COLOR}"></span>{T["legend_province"]}</div>'
-        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{DISTRICT_LINE_COLOR};height:2px"></span>{T["legend_district"]}</div>'
         f'<div class="wq-legend-item"><span class="wq-legend-circle" style="border:2px solid {STATION_STROKE_COLOR}"></span>{T["legend_pcd_stations"]}</div>'
     )
     turbidity_rows = []
@@ -968,24 +938,6 @@ def province_history():
     return pd.DataFrame(rows)
 
 
-def load_provinces_for_display():
-    """Thailand province outlines, as cached from Province Shapefile.zip.
-
-    This used to re-simplify every province to ~2km before handing them to
-    Leaflet, to keep down what streamlit-folium reserialises on each rerun.
-    That step is gone: it was destroying the detail it was meant to be
-    cheaply approximating. On Ubon it moved the outline by up to 2.2km,
-    nearly as far as the entirely different OpenStreetMap boundary sat from
-    it (3.4km) - so switching to the local shapefile made no visible
-    difference at all until this was removed.
-
-    The cache is written at a tolerance chosen for what is actually drawn -
-    fine for Ubon, proportional to each province's own size elsewhere (see
-    import_shapefiles) - so there is nothing left here to do.
-    """
-    return geo.load_thailand_provinces()
-
-
 @st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
 def load_level_history(start, end, lead_days=0):
     """Daily Mun River stage over [start, end] as a tidy DataFrame.
@@ -1028,46 +980,13 @@ def load_level_history(start, end, lead_days=0):
     return pd.DataFrame(rows)
 
 
-@st.cache_data(show_spinner=False)
-def district_ntu(path: str):
-    """Mean turbidity per Ubon district for one composite, highest first.
-
-    Zonal statistics rather than per-station values: this answers "which
-    district is worst" for every district with water in it, not only the
-    ones that happen to contain a PCD station. Districts are burned into a
-    label grid aligned to the raster once (cheap - ~10ms) and averaged with
-    a boolean mask per zone.
-    """
-    import rasterio.features
-    import rasterio.transform
-
-    try:
-        districts = geo.load_districts()
-    except FileNotFoundError:
-        return pd.DataFrame(columns=["District", "NTU"])
-
-    # The district layer covers the whole country; this ranking is about one
-    # province, and the composite only spans that province anyway. Filtering
-    # first keeps the rasterise to 25 polygons rather than 930, all but a
-    # handful of which would burn no pixels at all.
-    features = [f for f in districts["features"]
-                if f["properties"].get("ADM1_NAME") == FOCUS_PROVINCE]
-
-    turb, mask, b = load_province_composite(path)
-    h, w = turb.shape
-    transform = rasterio.transform.from_bounds(b.left, b.bottom, b.right, b.top, w, h)
-    names = [f["properties"]["ADM2_NAME"] for f in features]
-    zones = rasterio.features.rasterize(
-        [(f["geometry"], i + 1) for i, f in enumerate(features)],
-        out_shape=(h, w), transform=transform, fill=0, dtype="int32",
-    )
-
-    rows = []
-    for i, name in enumerate(names, start=1):
-        sel = (zones == i) & mask
-        if sel.any():
-            rows.append({"District": name, "NTU": float(turb[sel].mean())})
-    return pd.DataFrame(rows).sort_values("NTU", ascending=False).reset_index(drop=True)
+# district_ntu() used to live here: it ranked Ubon's 25 amphoe by the mean
+# turbidity of the water pixels inside each one, by burning the district
+# polygons into a label grid aligned to the composite and averaging per zone.
+# It went with the boundary data. Zonal statistics need zones, and this project
+# no longer holds any administrative geometry to supply them - so the ranking
+# is not disabled or stubbed, it is gone. What remains that is per-place is the
+# station list, which is per-point and needs no polygons.
 
 
 # Per-station turbidity for the *currently selected* composite date - this is
@@ -1098,12 +1017,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# The rectangle the map opens on. A literal, because there is no boundary
+# geometry in this project any more to measure it from - these four numbers
+# are the bounding box the Ubon Ratchathani outline used to give, kept to
+# full precision so the opening view is unchanged.
+#
 # Center/zoom persist across reruns entirely client-side (see
 # map_controls.add_view_persistence, called below) - only the very first-ever
 # visit has nothing saved, so this fallback only has to be reasonably close;
 # it's immediately corrected (see add_view_persistence) either from a saved
-# position or a proper fitBounds to the province boundary.
-b_minx, b_miny, b_maxx, b_maxy = geo.load_province(FOCUS_PROVINCE).bounds
+# position or a proper fitBounds to this box.
+b_minx, b_miny = 104.37281039238762, 14.209436785232628
+b_maxx, b_maxy = 105.63696456003092, 16.098004466447623
 center_lat = station_summary["station_la"].mean()
 center_lon = station_summary["station_lo"].mean()
 fmap = folium.Map(location=[center_lat, center_lon], zoom_start=8, tiles=None, zoom_control=False)
@@ -1207,63 +1132,11 @@ stations_def = {
     "title": T["pcd_dept"],
 }
 
-# Boundary hover labels follow the interface language. The shapefiles these
-# come from carry both names (see import_shapefiles.py); the previous Earth
-# Engine source had English only, which is why these were English-only before.
-PROVINCE_NAME_FIELD = "ADM1_NAME_TH" if LANG == "th" else "ADM1_NAME"
-DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
-
-# --- All Thailand provinces, Ubon Ratchathani highlighted ---
-province_def = None
-try:
-    provinces_geojson = load_provinces_for_display()
-
-    def province_style(feature):
-        is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
-        return {
-            "color": PROVINCE_FOCUS_COLOR if is_focus else PROVINCE_LINE_COLOR,
-            # 1.4 rather than 1 for the others: with the district layer on,
-            # a province line the same width as its own subdivisions stops
-            # reading as the higher level.
-            "weight": 3 if is_focus else 1.4,
-            # fill:False (not just fillOpacity:0) - otherwise the invisible
-            # fill still counts as "painted" for hit-testing and the whole
-            # province polygon (which covers every station) swallows clicks
-            # meant for the markers underneath it.
-            "fill": False,
-            "fillOpacity": 0,
-        }
-
-    province_layer = folium.GeoJson(
-        provinces_geojson, name="Provinces", style_function=province_style,
-        tooltip=folium.GeoJsonTooltip(fields=[PROVINCE_NAME_FIELD], aliases=[""]),
-        show=True,
-    )
-    province_layer.add_to(fmap)
-    province_def = {"key": "province", "label": T["province_label"], "layer": province_layer, "default_on": True}
-except FileNotFoundError as e:
-    st.info(str(e))
-
-# --- Districts, country-wide. On by default: it is now a full national layer
-# rather than the secondary detail it was when it held one province, and
-# leaving it switched off meant a visitor never saw it without hunting through
-# the rail for a toggle. ---
-district_def = None
-try:
-    districts_geojson = geo.load_districts()
-    district_layer = folium.GeoJson(
-        districts_geojson, name="Districts",
-        # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
-        # shows more than a province or two.
-        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
-                                   "fill": False, "fillOpacity": 0},
-        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
-        show=True,
-    )
-    district_layer.add_to(fmap)
-    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
-except FileNotFoundError:
-    pass
+# This project holds no administrative boundary geometry at all - no province
+# outlines, no district outlines, not even one for Ubon - so there is nothing
+# here to draw between the basemap and the turbidity overlay. What the app
+# adds on top of the basemap is that overlay and the station markers, and
+# nothing else. The basemap carries its own faint borders.
 
 overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
 turbidity_layer = folium.raster_layers.ImageOverlay(
@@ -1276,7 +1149,7 @@ turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": tur
 
 station_layer.add_to(fmap)
 
-overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def] if d is not None]
+overlay_defs = [d for d in [stations_def, turbidity_def] if d is not None]
 map_controls.add_layer_rail(
     fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
@@ -1544,23 +1417,6 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     st.markdown(f'<div class="sf-note">{T["streamflow_note"]}</div>', unsafe_allow_html=True)
-
-    # --- District ranking by turbidity ---
-    st.markdown(f"#### {T['district_ranking']}")
-    districts = district_ntu(picked_path)
-    if districts.empty:
-        st.caption(T["no_districts"])
-    else:
-        st.caption(f'{T["district_ranking_note"]} &middot; {picked_date:%d %b %Y}')
-        for i, row in enumerate(districts.itertuples(), start=1):
-            cls = style.classify(row.NTU)
-            st.markdown(
-                f'<div class="rank-row"><span class="rank-num">{i}</span>'
-                f'<span class="rank-name">{row.District}</span>'
-                f'<span class="rank-ntu">{row.NTU:.1f} NTU</span>'
-                f'<span class="rank-risk" style="background:{cls["color"]}">{cls["label"]}</span></div>',
-                unsafe_allow_html=True,
-            )
 
     # --- Ranked station list ---
     st.markdown(f"#### {T['stations_heading']}")
