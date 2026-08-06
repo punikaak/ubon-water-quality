@@ -1226,10 +1226,47 @@ stations_def = {
 PROVINCE_NAME_FIELD = "ADM1_NAME_TH" if LANG == "th" else "ADM1_NAME"
 DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
 
+# Boundary draw order, lowest first: districts, then the other 76 provinces,
+# then Ubon. Leaflet paints these SVG paths in the order they are added, so
+# whatever is added last sits on top - and the Ubon highlight is meant to be
+# read over everything else, not crossed by the 930 district lines that used
+# to be drawn after it.
+
+# --- Districts, country-wide. On by default: it is a full national layer
+# rather than the secondary detail it was when it held one province, and
+# leaving it switched off meant a visitor never saw it without hunting through
+# the rail for a toggle. ---
+district_def = None
+try:
+    districts_geojson = geo.load_districts()
+    district_layer = folium.GeoJson(
+        districts_geojson, name="Districts",
+        # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
+        # shows more than a province or two.
+        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
+                                   "fill": False, "fillOpacity": 0},
+        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
+        show=True,
+    )
+    district_layer.add_to(fmap)
+    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
+except FileNotFoundError:
+    pass
+
 # --- All Thailand provinces, Ubon Ratchathani highlighted ---
 province_def = None
 try:
     provinces_geojson = load_provinces_for_display()
+
+    # Ubon last, so its highlight is painted over the other provinces' lines
+    # as well as over the districts. Sorted into a new dict rather than
+    # reordered in place: the loaded GeoJSON is an lru_cached object shared
+    # with the rest of the app, and mutating it would outlive this render.
+    provinces_geojson = dict(
+        provinces_geojson,
+        features=sorted(provinces_geojson["features"],
+                        key=lambda f: f["properties"].get("ADM1_NAME") == FOCUS_PROVINCE),
+    )
 
     def province_style(feature):
         is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
@@ -1256,27 +1293,6 @@ try:
     province_def = {"key": "province", "label": T["province_label"], "layer": province_layer, "default_on": True}
 except FileNotFoundError as e:
     st.info(str(e))
-
-# --- Districts, country-wide. On by default: it is now a full national layer
-# rather than the secondary detail it was when it held one province, and
-# leaving it switched off meant a visitor never saw it without hunting through
-# the rail for a toggle. ---
-district_def = None
-try:
-    districts_geojson = geo.load_districts()
-    district_layer = folium.GeoJson(
-        districts_geojson, name="Districts",
-        # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
-        # shows more than a province or two.
-        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
-                                   "fill": False, "fillOpacity": 0},
-        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
-        show=True,
-    )
-    district_layer.add_to(fmap)
-    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
-except FileNotFoundError:
-    pass
 
 overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
 turbidity_layer = folium.raster_layers.ImageOverlay(
