@@ -1,14 +1,16 @@
 """Boundary and reference-layer geometry for the Mekong Water Quality dashboard.
 
-- All-Thailand province boundaries (77): local TH_Province shapefile, cached
-  to thailand_provinces.geojson with both English and Thai names.
-- Ubon district (amphoe) boundaries (25): local GISTDA FGDS 1:50k amphoe
-  shapefile, cached to ubon_districts.geojson with both names.
-  Ubon's own outline in thailand_provinces.geojson is the union of these 25,
-  not the province shapefile's own version of it - the two datasets disagree
-  along that border by a few hundred metres, which drew as a doubled edge.
-  Both of the above are written by import_shapefiles.py - see that module for
-  why the shapefiles are converted rather than read directly.
+- District (amphoe) boundaries, all 930 in Thailand: local GISTDA FGDS 1:50k
+  amphoe shapefile, cached to thailand_districts.geojson with English and
+  Thai names and the province each belongs to.
+- Province boundaries, all 77: each the union of its own districts from the
+  layer above, cached to thailand_provinces.geojson. Not taken from the
+  province shapefile's own geometry - that dataset and the amphoe one
+  disagree along every province border by a few hundred metres, which drew as
+  a doubled edge wherever both layers were shown. The province shapefile is
+  still read, for its province names, which the amphoe layer lacks.
+  Both files are written by import_shapefiles.py - see that module for why
+  the shapefiles are converted rather than read directly.
 - Station place names: OpenStreetMap Nominatim reverse geocoding, cached to
   station_locations.json.
 - Ubon Ratchathani outline: OpenStreetMap Nominatim (relation 1908830),
@@ -38,7 +40,7 @@ QUERY = "Ubon Ratchathani Province, Thailand"
 STATION_LOCATIONS_CACHE = "station_locations.json"
 
 THAILAND_PROVINCES_CACHE = "thailand_provinces.geojson"
-UBON_DISTRICTS_CACHE = "ubon_districts.geojson"
+DISTRICTS_CACHE = "thailand_districts.geojson"
 ROADS_CACHE = "ubon_roads.json"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 UBON_RELATION_ID = 1908830  # OSM relation id, from the Nominatim lookup above
@@ -167,9 +169,16 @@ def load_thailand_provinces() -> dict:
 
 
 @functools.lru_cache(maxsize=1)
-def load_ubon_districts() -> dict:
-    """Ubon Ratchathani's 25 districts: ADM2_NAME, plus ADM2_NAME_TH."""
-    return _require_cache(UBON_DISTRICTS_CACHE, _SHAPEFILE_HINT, "Ubon district boundaries")
+def load_districts() -> dict:
+    """All 930 Thai amphoe: ADM2_NAME/_TH, plus the ADM1_NAME/_TH and
+    ADM1_CODE of the province each belongs to.
+
+    Country-wide rather than Ubon-only, so callers that want one province
+    filter on ADM1_NAME - see dashboard.district_ntu, which ranks Ubon's
+    districts and would otherwise rasterise all 930 over a grid that covers
+    one province.
+    """
+    return _require_cache(DISTRICTS_CACHE, _SHAPEFILE_HINT, "district boundaries")
 
 
 @functools.lru_cache(maxsize=8)

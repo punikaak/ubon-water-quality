@@ -7,28 +7,33 @@ The two shapefiles total ~51MB, and the deployed app on Streamlit Cloud has
 nothing but the repo, which cannot carry files that size. Reading them at
 runtime would work on this machine and fail on the website.
 
-So they are converted once, here, into the same two GeoJSON caches the app
-already loads (see geo_boundary.load_thailand_provinces / load_ubon_districts).
-Those are small enough to commit, which keeps the deployed site working and
-means no other module has to know where the geometry came from.
+So they are converted once, here, into the two GeoJSON caches the app loads
+(see geo_boundary.load_thailand_provinces / load_districts). Those are small
+enough to commit, which keeps the deployed site working and means no other
+module has to know where the geometry came from.
 
 The two sources
 ---------------
-- Provinces: TH_Province.shp - all 77, UTM zone 47N, TIS-620 names.
-- Districts: L05_AdminBoundary_Amphoe_*.shp - GISTDA's 1:50k FGDS amphoe
-  layer, already WGS84 with UTF-8 names. Ubon's 25 amphoe are taken from it
-  directly.
+- Amphoe: L05_AdminBoundary_Amphoe_*.shp - GISTDA's 1:50k FGDS layer, WGS84,
+  UTF-8. All 930 of Thailand's amphoe. This is the only geometry that ends up
+  drawn: the province layer is built from it too (see below).
+- Provinces: TH_Province.shp - UTM zone 47N, TIS-620. Used for its province
+  *names*, which the amphoe layer does not carry - it identifies a province
+  only by code.
 
 They disagree about encoding, projection and which sidecar file declares the
-encoding, and the folders have already been reorganised twice - so rather
+encoding, and the folders have been reorganised more than once - so rather
 than hard-coding any of that, each source is located by filename pattern and
 its encoding and CRS read from the .prj and .cpg/.cst beside it.
 
-An earlier version built the district layer by dissolving a tambon
-(subdistrict) shapefile up to amphoe. The amphoe layer replaces that
-outright: dissolving unions hundreds of polygons along shared edges that do
-not quite coincide, which leaves slivers and a visibly ragged outline, and an
-authoritative amphoe layer has no such problem.
+Why provinces are built from the amphoe rather than read from TH_Province
+-------------------------------------------------------------------------
+The two datasets disagree along every province border by a few hundred
+metres. Drawing the province layer from one and the district layer from the
+other therefore puts two nearly-parallel lines on the map, which reads as a
+smeared double edge rather than a boundary. A province is the union of its
+districts, so building it that way is both correct and what makes the two
+layers coincide exactly.
 
 Run it after replacing either shapefile:
 
@@ -42,6 +47,7 @@ import json
 import os
 import re
 import sys
+from collections import defaultdict
 
 import shapefile  # pyshp - see requirements-dev.txt
 from rasterio.warp import transform as warp_transform
@@ -58,26 +64,36 @@ DISTRICT_GLOB = "**/*Amphoe*.shp"
 DST_CRS = "EPSG:4326"
 FOCUS_PROVINCE = "UBON RATCHATHANI"
 PROVINCES_OUT = "thailand_provinces.geojson"
-DISTRICTS_OUT = "ubon_districts.geojson"
+DISTRICTS_OUT = "thailand_districts.geojson"
 
-# Degrees, chosen against what actually consumes the output rather than by eye:
-#   The 76 provinces that are only context around Ubon are re-simplified to
-#   0.02 by the display path anyway (dashboard.load_provinces_for_display).
-#   Ubon itself is exempt from that step and drawn as cached, so its tolerance
-#   is what the reader actually sees - hence far finer.
-#   Districts are rasterised for the per-district turbidity ranking
-#   (dashboard.district_ntu) onto a grid whose pixels are ~0.003 across, so
-#   0.0005 is already sub-pixel there and well under a line's width on screen.
-# All three matter for repo weight: these files ship to Streamlit Cloud.
-PROVINCE_TOLERANCE = 0.005
+# Degrees. Two tiers, because the country-wide layers are ~930 districts and
+# 77 provinces and every byte of them is re-sent to the browser on each
+# Streamlit rerun (streamlit-folium reserialises the whole map), while only
+# Ubon is ever looked at closely:
+#   Ubon's districts, and the province outline built from them, are what the
+#   reader actually inspects, and the display path draws the focus province
+#   as cached rather than re-simplifying it - so 0.0005 (~55m) is what is
+#   seen.
+#   Everything else is context at country zoom, where 0.01 (~1.1km) is around
+#   a pixel; the other 76 provinces are re-simplified to 0.02 for drawing
+#   regardless.
+# Measured whole-country cost: 0.0005 everywhere would be 8.9MB, 0.005 1.6MB,
+# this split 1.1MB.
 FOCUS_TOLERANCE = 0.0005
-DISTRICT_TOLERANCE = 0.0005
+CONTEXT_TOLERANCE = 0.01
 
 # The old "minor district" designation. Every one of these was upgraded to a
 # full amphoe years ago; where a dataset still carries the prefix, putting it
 # on the map would be wrong as well as noisy.
 KING_AMPHOE_EN = "KING AMPHOE"
 THAI_PREFIXES = ("กิ่งอำเภอ", "อำเภอ", "จังหวัด")
+
+# The province shapefile carries a stale English label for province 38: it
+# says NONG KHAI, but the Thai name beside it is บึงกาฬ and its amphoe are
+# Bung Kan, Seka, Si Wilai and so on. It is Bueng Kan, split out of Nong Khai
+# in 2011; only the English column was never updated. Uncorrected, the map
+# labels two different provinces "Nong Khai".
+ENGLISH_NAME_FIXES = {"38": "Bueng Kan"}
 
 
 def find_one(pattern):
@@ -150,111 +166,131 @@ def clean_th(raw: str) -> str:
     return s
 
 
-def prepare(geom, src_crs, tolerance):
-    """Repair, reproject and simplify one boundary.
-
-    buffer(0) before anything else: a self-touching ring makes shapely refuse
-    to simplify, and it is the standard repair - a no-op on geometry that was
-    already valid, which is all of the amphoe layer and all but a few
-    provinces.
-    """
-    if not geom.is_valid:
-        geom = geom.buffer(0)
-    if src_crs != DST_CRS:
-        geom = shapely_transform(
-            lambda xs, ys: tuple(warp_transform(src_crs, DST_CRS, list(xs), list(ys))), geom)
-    if tolerance:
-        geom = geom.simplify(tolerance, preserve_topology=True)
-    return geom
-
-
-def focus_code_of(path):
-    """Ubon's province code, which is how the amphoe layer identifies it."""
-    enc = sidecar_encoding(path, "tis-620")
-    for rec in shapefile.Reader(path, encoding=enc).records():
-        if rec["PROV_NAME"].strip().upper() == FOCUS_PROVINCE:
-            return str(rec["PROV_CODE"]).strip()
-    return None
+def to_wgs84(geom, src_crs):
+    if src_crs == DST_CRS:
+        return geom
+    return shapely_transform(
+        lambda xs, ys: tuple(warp_transform(src_crs, DST_CRS, list(xs), list(ys))), geom)
 
 
 def outer_ring_only(geom):
     """Drop the interior rings from a dissolved boundary.
 
-    Unioning the districts leaves a hairline gap wherever two neighbours'
-    shared edge simplified a fraction differently - 314 of them here, the
-    largest 0.05km2 against the province's 16063, 0.016% of it in total.
-    They are digitisation slivers rather than enclaves, and this layer is
-    drawn as an outline rather than a fill, so each one would paint as a
-    speck of stray boundary inside the province. Ubon has no real enclaves,
-    so every interior goes; the exterior ring, which is what gets drawn, is
-    untouched.
+    Unioning a province's districts leaves a hairline gap wherever two
+    neighbours' shared edge simplified a fraction differently - a few hundred
+    of them country-wide, each a tiny fraction of a square kilometre. They are
+    digitisation slivers rather than enclaves, and these layers are drawn as
+    outlines rather than fills, so each one would paint as a speck of stray
+    boundary inside a province. The exterior ring, which is what gets drawn,
+    is untouched.
     """
     parts = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
     cleaned = [Polygon(p.exterior) for p in parts if not p.is_empty]
     return cleaned[0] if len(cleaned) == 1 else MultiPolygon(cleaned)
 
 
-def build_provinces(path, focus_geom=None):
-    """All 77 provinces.
+def province_names(path):
+    """{province code: (english, thai)} from the province shapefile.
 
-    `focus_geom` replaces Ubon's own outline with one built elsewhere - see
-    main(), which passes the union of its amphoe. The two shapefiles disagree
-    slightly along that border, and drawing the province from one while
-    drawing the districts from the other put two nearly-parallel lines a few
-    hundred metres apart on the map, which read as a smeared double edge
-    rather than a boundary. A province is the union of its districts, so
-    building it that way is both correct and the thing that makes the two
-    layers coincide exactly.
+    This file is read for its names alone. The amphoe layer identifies a
+    province only by a numeric code, and nothing else in the project maps
+    those codes to names.
     """
-    crs, enc = sidecar_crs(path), sidecar_encoding(path, "tis-620")
+    enc = sidecar_encoding(path, "tis-620")
+    out = {}
+    for rec in shapefile.Reader(path, encoding=enc).records():
+        code = str(rec["PROV_CODE"]).strip()
+        out[code] = (ENGLISH_NAME_FIXES.get(code, clean_en(rec["PROV_NAME"])),
+                     clean_th(rec["PROV_NAMT"]))
+    return out
+
+
+def build_districts(path, names_by_code):
+    """Every amphoe in Thailand, one feature each.
+
+    Grouped by AMP_CODE first: 37 amphoe are split across several records in
+    this dataset (islands, mostly), and emitting those as separate features
+    would put duplicate names in the layer and leave their internal edges
+    drawn as boundaries.
+
+    The province is keyed off AMP_CODE's first two digits rather than the
+    PRV_CODE column. Both agree wherever PRV_CODE is filled in, but 16
+    records have it blank - among them the whole of Nong Bua Lamphu - and
+    those would otherwise be dropped, taking their province's outline with
+    them.
+    """
+    crs, enc = sidecar_crs(path), sidecar_encoding(path, "utf-8")
     reader = shapefile.Reader(path, encoding=enc)
-    features = []
+
+    groups = defaultdict(list)
+    labels = {}
     for rec, shp in zip(reader.records(), reader.shapes()):
-        name_en = rec["PROV_NAME"]
-        is_focus = name_en.strip().upper() == FOCUS_PROVINCE
-        if is_focus and focus_geom is not None:
-            geom = focus_geom
-        else:
-            geom = prepare(shape(shp.__geo_interface__), crs,
-                           FOCUS_TOLERANCE if is_focus else PROVINCE_TOLERANCE)
+        code = str(rec["AMP_CODE"]).strip()
+        groups[code].append(shape(shp.__geo_interface__))
+        # Same 16 records carry no name either. Falling back to the code keeps
+        # the feature identifiable instead of showing an empty tooltip.
+        if code not in labels or not labels[code][0]:
+            labels[code] = (clean_en(rec["AMP_NAME_E"]), clean_th(rec["AMP_NAME_T"]))
+
+    features = []
+    for code, parts in sorted(groups.items()):
+        prov_code = code[:2]
+        prov_en, prov_th = names_by_code.get(prov_code, ("", ""))
+        geom = parts[0] if len(parts) == 1 else unary_union(parts)
+        if not geom.is_valid:
+            geom = geom.buffer(0)
+        geom = to_wgs84(geom, crs)
+        tol = FOCUS_TOLERANCE if prov_en.upper() == FOCUS_PROVINCE else CONTEXT_TOLERANCE
+        geom = geom.simplify(tol, preserve_topology=True)
         if geom.is_empty:
             continue
+        name_en, name_th = labels[code]
         features.append({
             "type": "Feature",
             "properties": {
-                "ADM1_NAME": clean_en(name_en),
-                "ADM1_NAME_TH": clean_th(rec["PROV_NAMT"]),
+                "ADM2_NAME": name_en or f"Amphoe {code}",
+                "ADM2_NAME_TH": name_th or f"อำเภอ {code}",
+                "ADM1_CODE": prov_code,
+                "ADM1_NAME": prov_en,
+                "ADM1_NAME_TH": prov_th,
             },
             "geometry": mapping(geom),
         })
     return {"type": "FeatureCollection", "features": features}
 
 
-def build_districts(path, focus_code):
-    """Ubon's amphoe, taken straight from the amphoe layer.
+def build_provinces(district_collection):
+    """Every province, as the union of its own districts.
 
-    The layer identifies a district's province by code, not name, so the code
-    is carried over from the province file - which is also what guarantees the
-    two layers are talking about the same province.
+    The union is taken over the *already simplified* district geometries, so
+    a shared edge is the identical vertex list in both layers and the province
+    outline cannot sit a pixel off the district edges drawn on top of it.
+
+    Grouped by province code, not name: two provinces in the source share the
+    English name "Nong Khai" (see ENGLISH_NAME_FIXES), and grouping by name
+    silently merged them into one 76-province layer.
     """
-    crs, enc = sidecar_crs(path), sidecar_encoding(path, "utf-8")
-    reader = shapefile.Reader(path, encoding=enc)
+    groups = defaultdict(list)
+    names = {}
+    for f in district_collection["features"]:
+        key = f["properties"]["ADM1_CODE"]
+        groups[key].append(shape(f["geometry"]))
+        names[key] = (f["properties"]["ADM1_NAME"], f["properties"]["ADM1_NAME_TH"])
+
     features = []
-    for rec, shp in zip(reader.records(), reader.shapes()):
-        if str(rec["PRV_CODE"]).strip() != focus_code:
-            continue
-        geom = prepare(shape(shp.__geo_interface__), crs, DISTRICT_TOLERANCE)
+    for code, parts in sorted(groups.items()):
+        geom = parts[0] if len(parts) == 1 else unary_union(parts)
+        if not geom.is_valid:
+            geom = geom.buffer(0)
+        geom = outer_ring_only(geom)
         if geom.is_empty:
             continue
+        name_en, name_th = names[code]
         features.append({
             "type": "Feature",
-            "properties": {
-                "ADM2_NAME": clean_en(rec["AMP_NAME_E"]),
-                "ADM2_NAME_TH": clean_th(rec["AMP_NAME_T"]),
-            },
+            "properties": {"ADM1_NAME": name_en, "ADM1_NAME_TH": name_th},
             "geometry": mapping(geom),
         })
-    features.sort(key=lambda f: f["properties"]["ADM2_NAME"])
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -262,7 +298,7 @@ def write(path, collection):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(collection, f, ensure_ascii=False)
     kb = os.path.getsize(path) / 1024
-    print(f"  wrote {path}: {len(collection['features'])} features, {kb:.0f} KB")
+    print(f"  wrote {path}: {len(collection['features'])} features, {kb:,.0f} KB")
 
 
 def main() -> int:
@@ -274,25 +310,13 @@ def main() -> int:
             return 1
         print(f"{label:9} <- {path}  [{sidecar_crs(path)}, {sidecar_encoding(path)}]")
 
-    focus_code = focus_code_of(province_shp)
-    if focus_code is None:
-        print(f"{FOCUS_PROVINCE} not found in {province_shp}.")
-        return 1
-
-    print(f"Districts of {FOCUS_PROVINCE.title()} (province code {focus_code}) ...")
-    districts = build_districts(district_shp, focus_code)
+    names = province_names(province_shp)
+    print(f"\nDistricts (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
+    districts = build_districts(district_shp, names)
     write(DISTRICTS_OUT, districts)
 
-    # Union the districts *after* simplification, not before: the shared edge
-    # between two neighbours is then the identical vertex list in both, so the
-    # union's outer ring is made of the very segments the district layer draws
-    # and the two outlines cannot disagree by a pixel.
-    focus_geom = unary_union([shape(f["geometry"]) for f in districts["features"]])
-    if not focus_geom.is_valid:
-        focus_geom = focus_geom.buffer(0)
-    focus_geom = outer_ring_only(focus_geom)
-    print("Provinces (Ubon's outline built from those districts) ...")
-    write(PROVINCES_OUT, build_provinces(province_shp, focus_geom))
+    print("Provinces (each built from its own districts) ...")
+    write(PROVINCES_OUT, build_provinces(districts))
     print("Commit both .geojson files; the shapefiles stay gitignored.")
     return 0
 

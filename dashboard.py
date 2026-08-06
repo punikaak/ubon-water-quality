@@ -963,44 +963,27 @@ def province_history():
     return pd.DataFrame(rows)
 
 
-@st.cache_data(show_spinner=False)
-def load_provinces_for_display(tolerance=0.02):
-    """Thailand province outlines, simplified again for rendering.
+def load_provinces_for_display():
+    """Thailand province outlines, as cached.
 
-    The cached GeoJSON is ~700KB of 77 polygons, and streamlit-folium
-    re-sends the whole map (this included) to the browser on *every* rerun -
-    Leaflet re-drawing it is the dominant cost of every interaction, ~5s
-    measured. Simplifying to ~2km cuts it to under a third with no visible
-    difference at the zoom levels this map ever shows.
+    This used to re-simplify every province to ~2km before handing them to
+    Leaflet, to keep down what streamlit-folium reserialises on each rerun.
+    That step is gone. Two reasons, both of which only became true once the
+    boundaries came from the local shapefiles:
 
-    Except for Ubon itself, which is exempt. It is the subject of the map
-    rather than context around it, and at 0.02 this step was moving its
-    outline by up to 2.2km - almost as far as the entirely different
-    OpenStreetMap boundary sits from it (3.4km). The result was that
-    switching the source to the province shapefile made no visible
-    difference, because this was smoothing the new detail straight back off.
-    It is one polygon of 77, so drawing it as cached costs ~56KB.
+    - It was destroying the detail it was meant to be cheaply approximating.
+      On Ubon it moved the outline by up to 2.2km, nearly as far as the
+      entirely different OpenStreetMap boundary sat from it (3.4km), so
+      changing the data source made no visible difference at all.
+    - Each province in the cache is now exactly the union of its own
+      districts (see import_shapefiles). Simplifying one layer and not the
+      other pulled the province line off the district lines drawn on top of
+      it, which is the doubled edge this pair of layers was changed to avoid.
+
+    The cache is written at a tolerance chosen for what is actually drawn -
+    fine for Ubon, ~1km for the rest - so there is nothing left here to do.
     """
-    from shapely.geometry import mapping, shape
-
-    features = []
-    for f in geo.load_thailand_provinces()["features"]:
-        geom = shape(f["geometry"])
-        if f["properties"].get("ADM1_NAME") != FOCUS_PROVINCE:
-            geom = geom.simplify(tolerance, preserve_topology=True)
-        if geom.is_empty:
-            continue
-        features.append({
-            "type": "Feature",
-            "properties": {
-                "ADM1_NAME": f["properties"].get("ADM1_NAME"),
-                # Carried through so the hover label can be Thai in Thai mode;
-                # dropping it here would strand it in the cache file.
-                "ADM1_NAME_TH": f["properties"].get("ADM1_NAME_TH"),
-            },
-            "geometry": mapping(geom),
-        })
-    return {"type": "FeatureCollection", "features": features}
+    return geo.load_thailand_provinces()
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
@@ -1059,16 +1042,23 @@ def district_ntu(path: str):
     import rasterio.transform
 
     try:
-        districts = geo.load_ubon_districts()
+        districts = geo.load_districts()
     except FileNotFoundError:
         return pd.DataFrame(columns=["District", "NTU"])
+
+    # The district layer covers the whole country; this ranking is about one
+    # province, and the composite only spans that province anyway. Filtering
+    # first keeps the rasterise to 25 polygons rather than 930, all but a
+    # handful of which would burn no pixels at all.
+    features = [f for f in districts["features"]
+                if f["properties"].get("ADM1_NAME") == FOCUS_PROVINCE]
 
     turb, mask, b = load_province_composite(path)
     h, w = turb.shape
     transform = rasterio.transform.from_bounds(b.left, b.bottom, b.right, b.top, w, h)
-    names = [f["properties"]["ADM2_NAME"] for f in districts["features"]]
+    names = [f["properties"]["ADM2_NAME"] for f in features]
     zones = rasterio.features.rasterize(
-        [(f["geometry"], i + 1) for i, f in enumerate(districts["features"])],
+        [(f["geometry"], i + 1) for i, f in enumerate(features)],
         out_shape=(h, w), transform=transform, fill=0, dtype="int32",
     )
 
@@ -1251,10 +1241,10 @@ try:
 except FileNotFoundError as e:
     st.info(str(e))
 
-# --- Ubon districts (off by default - secondary detail) ---
+# --- Districts, country-wide (off by default - secondary detail) ---
 district_def = None
 try:
-    districts_geojson = geo.load_ubon_districts()
+    districts_geojson = geo.load_districts()
     district_layer = folium.GeoJson(
         districts_geojson, name="Districts",
         style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 1, "dashArray": "3,3",
