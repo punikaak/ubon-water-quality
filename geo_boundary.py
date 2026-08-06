@@ -1,24 +1,27 @@
-"""Reference-layer data for the Mekong Water Quality dashboard.
+"""Boundary and reference-layer geometry for the Mekong Water Quality dashboard.
 
+- District (amphoe) boundaries, all 930 in Thailand: from Amphoe Shapefile.zip
+  (GISTDA's FGDS 1:50k amphoe layer), cached to thailand_districts.geojson
+  with English and Thai names and the province each belongs to.
+- Province boundaries, all 77: from Province Shapefile.zip (TH_Province),
+  cached to thailand_provinces.geojson.
+  Those two local archives are the only source of boundary geometry here, and
+  neither layer is derived from the other - each is drawn as its own shapefile
+  has it. The province file is also read for its province names, which the
+  amphoe layer lacks. Both caches are written by import_shapefiles.py; see
+  that module for why the archives are converted rather than read at runtime.
 - Station place names: OpenStreetMap Nominatim reverse geocoding, cached to
-  station_locations.json.
+  station_locations.json. Text for a point, with no geometry attached - not
+  boundary data.
 - Major roads (trunk + primary) within Ubon: OpenStreetMap Overpass, cached
   to ubon_roads.json.
 
-No administrative boundary geometry
------------------------------------
-There is none here, and none anywhere else in this project. Province and
-district outlines - and the separate Ubon Ratchathani outline that used to
-supply the map's fit bounds - have all been removed, along with the local
-shapefile archives they were built from and the script that converted them.
-
-Nothing was moved elsewhere or left disabled behind a flag: the map draws no
-boundaries, and the per-district turbidity ranking that needed district
-polygons for its zonal statistics is gone rather than stubbed. The map's
-opening rectangle is now four literal numbers in dashboard.py.
-
-Note that the place names below are *not* boundary data - Nominatim returns
-them as text for a point, with no geometry attached.
+The two archives above are the only source of boundary geometry in this
+project. There is no OpenStreetMap fallback: load_boundary() and its
+ubon_boundary.geojson cache, which fetched Ubon's outline from Nominatim, are
+gone. Ubon's outline comes from the province shapefile like every other
+province's, so the box the map fits to and the line it draws are one piece of
+geometry rather than two that disagree.
 
 All fetches are one-time; if a cache file already exists on disk it's used
 as-is (delete the file to force a re-fetch).
@@ -29,11 +32,14 @@ import os
 import time
 
 import requests
+from shapely.geometry import shape
 
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
 STATION_LOCATIONS_CACHE = "station_locations.json"
 
+THAILAND_PROVINCES_CACHE = "thailand_provinces.geojson"
+DISTRICTS_CACHE = "thailand_districts.geojson"
 ROADS_CACHE = "ubon_roads.json"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 UBON_RELATION_ID = 1908830  # OSM relation id, used only to scope the road query
@@ -109,6 +115,52 @@ def station_location_parts(stations, lang="en"):
     return out
 
 
+def _require_cache(path, hint, label):
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    raise FileNotFoundError(f"{path} not found ({label}). {hint}")
+
+
+_SHAPEFILE_HINT = "Run: python import_shapefiles.py (needs the two local shapefile .zip archives)."
+
+
+@functools.lru_cache(maxsize=1)
+def load_thailand_provinces() -> dict:
+    """All 77 Thailand provinces: ADM1_NAME, plus ADM1_NAME_TH for the Thai UI."""
+    return _require_cache(THAILAND_PROVINCES_CACHE, _SHAPEFILE_HINT, "Thailand province boundaries")
+
+
+@functools.lru_cache(maxsize=1)
+def load_districts() -> dict:
+    """All 930 Thai amphoe: ADM2_NAME/_TH, plus the ADM1_NAME/_TH and
+    ADM1_CODE of the province each belongs to.
+
+    Country-wide rather than Ubon-only, so callers that want one province
+    filter on ADM1_NAME - see dashboard.district_ntu, which ranks Ubon's
+    districts and would otherwise rasterise all 930 over a grid that covers
+    one province.
+    """
+    return _require_cache(DISTRICTS_CACHE, _SHAPEFILE_HINT, "district boundaries")
+
+
+@functools.lru_cache(maxsize=8)
+def load_province(name: str):
+    """One province's outline, as a shapely geometry, from the same shapefile
+    data the map draws.
+
+    Used for the map's initial fit bounds. That used to come from a separate
+    OpenStreetMap outline, which meant the rectangle the map fitted to and the
+    outline it drew were two different pieces of geometry that disagreed by
+    kilometres. Both now read from the province shapefile, so they agree by
+    construction; the OSM outline and its loader have been deleted.
+    """
+    for feature in load_thailand_provinces()["features"]:
+        if feature["properties"].get("ADM1_NAME") == name:
+            return shape(feature["geometry"])
+    raise KeyError(f"{name!r} not found in {THAILAND_PROVINCES_CACHE}")
+
+
 @functools.lru_cache(maxsize=1)
 def load_roads() -> list:
     """[[ [lat,lon], ... ], ...] polylines for trunk/primary roads in Ubon."""
@@ -126,16 +178,20 @@ def load_roads() -> list:
 
 
 # --------------------------------------------------------------- fetchers --
-# One-time fetch functions. Run manually (see the load_roads message above);
-# not called automatically since a countrywide Overpass query is slow and
-# shouldn't run on every dashboard load.
+# One-time fetch functions. Run manually (see _require_cache messages above);
+# not called automatically since Thailand-wide EE queries and countrywide
+# Overpass queries are slow and shouldn't run on every dashboard load.
+
+# No boundary fetcher lives here any more, from any source. There were two:
+# fetch_thailand_provinces() / fetch_ubon_districts(), pulling FAO/GAUL/2015
+# levels 1 and 2 from Earth Engine, and the Nominatim lookup behind
+# load_boundary(). Both boundary sets now come from the two local shapefile
+# archives instead (import_shapefiles.py), which are more complete - GAUL had
+# 20 of Ubon's 25 districts - and carry Thai names, which GAUL did not.
 #
-# The boundary fetchers that used to live here are gone for good: first
-# fetch_thailand_provinces() and fetch_ubon_districts(), which pulled
-# FAO/GAUL/2015 levels 1 and 2 from Earth Engine, then load_boundary() and its
-# Nominatim lookup of the Ubon relation. Nothing here fetches administrative
-# geometry any more, from any source. Re-adding one would put boundary data
-# back into a project that was deliberately cleared of it.
+# They are deleted rather than kept as a fallback: they wrote to the same
+# cache files the archives feed, so calling one would quietly replace the
+# chosen data with a different dataset.
 
 
 def fetch_roads(highway_types="trunk|primary"):

@@ -15,13 +15,15 @@ Prediction_*.png
 Validation_*.png
 Figure_*.png
 
-# Dead/unused cache. Nothing reads it.
+# Dead/unused cache (superseded by thailand_provinces.geojson etc.)
 ubon_water.json
 
-# Shapefiles. This project holds no administrative boundary data at all any
-# more (see README), and the archives these rules were written for have been
-# deleted - but the rules stay as a guard: a shapefile dropped in here is
-# large, and nothing in the app is meant to read one.
+# The boundary source archives, and anything unpacked from them. These ARE
+# where every province and district line comes from - but they are converted
+# once by import_shapefiles.py into the two committed .geojson caches that the
+# app actually reads, so the repo never needs them. Keeping them out matters:
+# the amphoe .shp alone is 40MB, over GitHub's recommended file limit and dead
+# weight on every Streamlit Cloud deploy.
 Province Shapefile/
 Tambon Shapefile/
 Amphoe Shapefile/
@@ -50,6 +52,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Same guard, for archives. The two boundary zips this was written for are
-# gone; blanket rather than by name so nothing large slips in by accident.
+# The boundary archives themselves: "Province Shapefile.zip", "Amphoe
+# Shapefile.zip". Blanket rather than by name, so a re-zipped or renamed drop
+# cannot be committed by accident.
 *.zip

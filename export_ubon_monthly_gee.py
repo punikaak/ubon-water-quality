@@ -15,9 +15,8 @@ the model needs all 8 features (B2,B3,B4,B8,NDWI,MNDWI,NDTI,NDSSI), so B11 and
 the missing indices are added.
 
 Study area: supplied by hand, see STUDY_AREA below. It was FAO/GAUL/2015
-level1 filtered to Ubon Ratchathani; this project no longer holds or fetches
-administrative boundary data from any source, so there is nothing left to
-derive a footprint from.
+level1 filtered to Ubon Ratchathani; that dependency on Earth Engine's
+boundary dataset was removed deliberately.
 
 TWO EXPORT MODES:
   - "rolling" (default): composite of the most recent WINDOW_DAYS days, for a
@@ -50,11 +49,15 @@ except Exception:
 # =========================================================================
 # 1. Study area - MUST BE SET BEFORE RUNNING
 # =========================================================================
-# This was FAO/GAUL/2015 level 1 filtered to Ubon Ratchathani. That is
-# administrative boundary data, and this project no longer holds or fetches
-# any, so the footprint has to be supplied here:
+# This was FAO/GAUL/2015 level 1 filtered to Ubon Ratchathani; that dependency
+# on Earth Engine's boundary dataset was removed deliberately, so the footprint
+# has to be supplied here:
 #
 #     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+#
+# The province geometry the dashboard draws is not reused for this - that is a
+# simplified rendering cache, and this script runs offline against Earth Engine
+# with no dependency on the app's data.
 #
 # Left unset rather than defaulted to some rectangle. A wrong footprint does
 # not fail - it exports real imagery of the wrong ground.
@@ -62,8 +65,7 @@ STUDY_AREA = None
 
 if STUDY_AREA is None:
     raise SystemExit(
-        "STUDY_AREA is not set. This script has no boundary data to fall back on - "
-        "set STUDY_AREA above to the ee.Geometry you want exported."
+        "STUDY_AREA is not set - set it above to the ee.Geometry you want exported."
     )
 ubon = STUDY_AREA
 

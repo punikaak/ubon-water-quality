@@ -11,7 +11,8 @@ polls and downloads each as it finishes.
 Run manually:  python backfill_ubon_weekly.py
 
 Needs core.STUDY_AREA set first - see refresh_ubon_data.py. The FAO/GAUL
-province boundary this used to build its own footprint from is gone.
+province boundary this used to build its own footprint from was removed
+deliberately.
 """
 import datetime as dt
 import io

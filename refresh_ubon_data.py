@@ -10,8 +10,8 @@ Meant to be re-run on a schedule (e.g. every 7 days) to keep the dashboard's
 area-wide turbidity layer current.
 
 Before the first run you must set STUDY_AREA below. It used to be derived from
-FAO/GAUL province boundaries; this project no longer carries or fetches any
-administrative boundary data, so the export footprint has to be supplied.
+FAO/GAUL province boundaries, which were removed from this project on purpose,
+so the export footprint has to be supplied.
 """
 import datetime as dt
 import io
@@ -35,8 +35,11 @@ MAX_LOOKBACK_DAYS = 35
 LATEST_POINTER = "ubon_latest_composite.txt"
 
 # The footprint to composite, clip and export. This used to be FAO/GAUL/2015
-# level 1 filtered to Ubon Ratchathani - administrative boundary data, which
-# this project no longer holds or fetches from anywhere. Set it before running:
+# level 1 filtered to Ubon Ratchathani; that dependency on Earth Engine's
+# boundary dataset was removed deliberately. Note that the province geometry
+# the dashboard draws is NOT reused here - these scripts run offline against
+# Earth Engine and take no dependency on the app's caches. Set it before
+# running:
 #
 #     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
 #
@@ -50,9 +53,8 @@ def study_area():
     """The export footprint, or a clear failure if none has been set."""
     if STUDY_AREA is None:
         raise RuntimeError(
-            "STUDY_AREA is not set. This script has no boundary data to fall back "
-            "on - see the note beside STUDY_AREA at the top of refresh_ubon_data.py "
-            "and set it to the ee.Geometry you want exported."
+            "STUDY_AREA is not set - see the note beside it at the top of "
+            "refresh_ubon_data.py, and set it to the ee.Geometry you want exported."
         )
     return STUDY_AREA
 
