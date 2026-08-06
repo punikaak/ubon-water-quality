@@ -48,7 +48,6 @@ folder unpacked from them, are gitignored on purpose (see .gitignore).
 import glob
 import io
 import json
-import math
 import os
 import re
 import sys
@@ -68,30 +67,39 @@ PROVINCE_GLOB = "*Province*.zip"
 DISTRICT_GLOB = "*Amphoe*.zip"
 
 DST_CRS = "EPSG:4326"
-FOCUS_PROVINCE = "UBON RATCHATHANI"
 PROVINCES_OUT = "thailand_provinces.geojson"
 DISTRICTS_OUT = "thailand_districts.geojson"
 
-# Simplification has to happen - every byte of these layers is re-sent to the
-# browser on each Streamlit rerun, since streamlit-folium reserialises the
-# whole map - but the tolerance is proportional to each polygon's own size
-# rather than a fixed distance.
+# One tolerance, in degrees, for every feature in both layers. ~110m.
 #
-# A fixed distance is the obvious thing and it is wrong here, because Thai
-# amphoe span four orders of magnitude in area. At a fixed 0.01deg (~1.1km),
-# a 5000km2 rural amphoe is untouched while Bangkok's khet - 6 to 28km2 - are
-# mangled: measured against the source, the worst district came out at 30%
-# IoU and most of Bangkok's under 75%. Tightening the fixed value does not
-# fix it either; 0.001 costs 5.6MB and still leaves the worst at 85%.
+# It must be uniform, and that is the whole point. The previous scheme scaled
+# the tolerance by sqrt(each polygon's area) and then exempted Ubon with a
+# fixed fine value, which produced two visible defects:
 #
-# Scaling by sqrt(area) holds every feature to the same *relative* fidelity
-# whatever its size. Measured over all 930 amphoe: worst 93.8%, median 97.4%,
-# for 1.8MB.
-SHAPE_TOLERANCE_FRACTION = 0.02
-# Ubon and its districts are the subject of this map rather than context, so
-# they get a fixed fine tolerance instead - finer than the rule above would
-# hand them.
-FOCUS_TOLERANCE = 0.0005
+#   - Provinces were cut to 3,028m of error and districts to 1,507m. At the
+#     zoom this map opens on that is 10-20 pixels, so borders rendered as
+#     straight chords across their real shape - a cartoon of the shapefile.
+#   - Worse, adjacent features got different tolerances. Ubon was held to 56m
+#     while the provinces touching it were cut to 2,541m: a 46x mismatch
+#     across a shared border, so the same border drew in two places at once.
+#     The province and district layers disagreed for the same reason, being
+#     simplified at scales an order of magnitude apart.
+#
+# A shared border is one line. It can only stay one line if both sides of it,
+# in both layers, are thinned by the same amount.
+#
+# The size this costs is paid for by COORD_DECIMALS below rather than by
+# coarsening the geometry.
+SHAPE_TOLERANCE = 0.001
+
+# Coordinates are written to 5 decimal places, ~1.1m at this latitude. The
+# source is nothing like that accurate, so this discards no real information -
+# but json.dump writes floats at full repr precision otherwise, and
+# "100.50069326100004" costs 19 characters to say "100.50069".
+#
+# That is not a micro-optimisation here: it halves the file, which is what
+# buys the 3x finer tolerance above at a comparable payload.
+COORD_DECIMALS = 5
 
 # The old "minor district" designation. Every one of these was upgraded to a
 # full amphoe years ago; where a dataset still carries the prefix, putting it
@@ -209,11 +217,29 @@ def clean_th(raw: str) -> str:
     return s
 
 
-def tolerance_for(geom, is_focus):
-    """Simplification tolerance for one polygon - see SHAPE_TOLERANCE_FRACTION."""
-    if is_focus:
-        return FOCUS_TOLERANCE
-    return math.sqrt(geom.area) * SHAPE_TOLERANCE_FRACTION
+def thin(geom):
+    """One polygon, simplified and rounded ready to write.
+
+    Deliberately takes no arguments beyond the geometry: every feature in both
+    layers is thinned identically, which is what keeps a shared border drawn
+    as one line rather than two. See SHAPE_TOLERANCE.
+    """
+    return geom.simplify(SHAPE_TOLERANCE, preserve_topology=True)
+
+
+def rounded(obj):
+    """GeoJSON coordinates at COORD_DECIMALS places.
+
+    Applied to the mapping() output rather than the geometry, so nothing
+    downstream of here has to know about it.
+    """
+    if isinstance(obj, float):
+        return round(obj, COORD_DECIMALS)
+    if isinstance(obj, (list, tuple)):
+        return [rounded(o) for o in obj]
+    if isinstance(obj, dict):
+        return {k: rounded(v) for k, v in obj.items()}
+    return obj
 
 
 def to_wgs84(geom, src_crs):
@@ -272,9 +298,7 @@ def build_districts(layer, names_by_code):
         geom = parts[0] if len(parts) == 1 else unary_union(parts)
         if not geom.is_valid:
             geom = geom.buffer(0)
-        geom = to_wgs84(geom, crs)
-        geom = geom.simplify(tolerance_for(geom, prov_en.upper() == FOCUS_PROVINCE),
-                             preserve_topology=True)
+        geom = thin(to_wgs84(geom, crs))
         if geom.is_empty:
             continue
         name_en, name_th = labels[code]
@@ -287,7 +311,7 @@ def build_districts(layer, names_by_code):
                 "ADM1_NAME": prov_en,
                 "ADM1_NAME_TH": prov_th,
             },
-            "geometry": mapping(geom),
+            "geometry": rounded(mapping(geom)),
         })
     return {"type": "FeatureCollection", "features": features}
 
@@ -301,15 +325,13 @@ def build_provinces(layer):
         geom = shape(shp.__geo_interface__)
         if not geom.is_valid:
             geom = geom.buffer(0)
-        geom = to_wgs84(geom, crs)
-        geom = geom.simplify(tolerance_for(geom, name_en.upper() == FOCUS_PROVINCE),
-                             preserve_topology=True)
+        geom = thin(to_wgs84(geom, crs))
         if geom.is_empty:
             continue
         features.append({
             "type": "Feature",
             "properties": {"ADM1_NAME": name_en, "ADM1_NAME_TH": clean_th(rec["PROV_NAMT"])},
-            "geometry": mapping(geom),
+            "geometry": rounded(mapping(geom)),
         })
     return {"type": "FeatureCollection", "features": features}
 
@@ -333,9 +355,9 @@ def main() -> int:
         print(f"{label:9} <- {zip_path} :: {layers[label].member}  "
               f"[{layers[label].crs}, {layers[label].encoding}]")
 
-    print(f"\nProvinces (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
+    print(f"\nProvinces (all 77, every one thinned by the same {SHAPE_TOLERANCE}deg) ...")
     write(PROVINCES_OUT, build_provinces(layers["province"]))
-    print(f"Districts (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
+    print(f"Districts (all 930, thinned by the same {SHAPE_TOLERANCE}deg) ...")
     write(DISTRICTS_OUT, build_districts(layers["amphoe"], province_names(layers["province"])))
     print("Commit both .geojson files; the archives stay gitignored.")
     return 0

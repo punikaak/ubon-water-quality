@@ -155,10 +155,18 @@ borders by a few hundred metres, so with both layers shown, a province edge
 and the district edges running along it do not sit exactly on top of each
 other.
 
-### Two sources that are deliberately *not* used
+### Sources that are deliberately *not* used
 
-Both were removed, and both would otherwise be the obvious thing to reach for:
+Each was removed, and each would otherwise be the obvious thing to reach for:
 
+- **The basemap's own borders.** The default tile layer is Esri Light Gray
+  Canvas, which draws none. It replaced CartoDB positron, which bakes
+  OpenStreetMap's province *and* amphoe boundaries into its tiles as dashed
+  pink lines. Those are a different dataset from the shapefiles drawn on top,
+  so every border appeared twice, a few hundred metres apart. Tiles are
+  images: the lines cannot be restyled or switched off, and `light_nolabels`
+  removes only the text. The other basemaps in the picker (Dark, Classic,
+  Terrain) still carry them; Satellite does not.
 - **OpenStreetMap.** `ubon_boundary.geojson` and `geo_boundary.load_boundary()`
   fetched Ubon's outline from Nominatim and used it for the map's fit bounds.
   That put the rectangle the map fitted to kilometres away from the line it
@@ -177,34 +185,45 @@ Both were removed, and both would otherwise be the obvious thing to reach for:
 Station place names in the sidebar are not boundary data either - Nominatim
 returns them as text for a point, with no geometry attached.
 
-### Simplification, and its cost
+### Simplification: one tolerance, everywhere
 
-Both layers are simplified before being written, because streamlit-folium
+Both layers are thinned before being written, because streamlit-folium
 reserialises the whole map on every rerun, so every byte is paid on each
-interaction. The tolerance is **proportional to each polygon's own area**,
-not a fixed distance - `SHAPE_TOLERANCE_FRACTION` in `import_shapefiles.py`.
+interaction. `SHAPE_TOLERANCE` in `import_shapefiles.py` is **0.001° (~110m),
+applied identically to every feature in both layers**.
 
-That matters because Thai amphoe span four orders of magnitude in area. A
-fixed 0.01° (~1.1km) leaves a 5000km² rural amphoe untouched and destroys
-Bangkok's khet, which are 6-28km²: measured against the source, the worst
-district came out at **30%** IoU and most of Bangkok's under 75%. Tightening
-the fixed value does not fix it - 0.001° costs 5.6MB and still leaves the
-worst at 85%. Scaling by `sqrt(area)` holds every feature to the same
-*relative* fidelity whatever its size.
+The uniformity is the point. An earlier scheme scaled the tolerance by
+`sqrt(area)` and then exempted Ubon with a fixed fine value. It produced two
+visible defects:
 
-Measured against the shapefiles after the change:
+| | worst error |
+|---|---|
+| Provinces | 3,028 m |
+| Districts | 1,507 m |
+| Ubon | 56 m — while the provinces touching it were cut to 2,541 m |
 
-| | worst | median | below 90% |
-|---|---|---|---|
-| 930 districts | 93.8% | 97.4% | 0 |
-| 77 provinces | 94.2% | 97.3% | 0 |
+At the zoom this map opens on, 3km is 10-20 pixels, so borders drew as
+straight chords across their real shape. Worse, adjacent features were thinned
+by different amounts - a 46× mismatch across Ubon's shared borders, and a
+comparable one between the province and district layers - so the *same* border
+drew in two places at once, as a doubled line.
 
-Ubon and its 25 districts ignore the proportional rule and take a fixed, much
-finer `FOCUS_TOLERANCE` - they are the subject of the map, not context.
+A shared border is one line. It stays one line only if both sides of it, in
+both layers, are thinned by the same amount. Now:
 
-The price: map payload 717KB → 3111KB, and a date change roughly 1.3s → 2s.
-`SHAPE_TOLERANCE_FRACTION` is the single knob if that is the wrong trade;
-raising it shrinks the files and lowers the fidelity table above.
+| | worst error |
+|---|---|
+| 77 provinces | 159 m |
+| 930 districts | 207 m |
+
+The finer tolerance is paid for by `COORD_DECIMALS`, not by geometry.
+Coordinates are written to 5 decimal places (~1.1m); `json.dump` otherwise
+writes full float repr, spending 19 characters on `100.50069326100004` to say
+`100.50069`. That halves the file, which buys the 3× finer tolerance back.
+
+The price: the two caches total 4.5MB, against 2.2MB before. `SHAPE_TOLERANCE`
+is the single knob if that is the wrong trade - 0.002° roughly halves the size
+and doubles the error, and is still 8× better than what came before it.
 
 ### Details that only matter if you regenerate
 
