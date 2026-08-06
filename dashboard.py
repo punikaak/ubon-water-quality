@@ -201,12 +201,13 @@ TRANSLATIONS = {
             'rel="noopener">OpenStreetMap</a>.'
         ),
         "info_src_streamflow": (
-            "<b>Streamflow / water level:</b> Daily Mun River stage from the "
-            '<a href="http://hydro-4.com/" target="_blank" rel="noopener">Royal Irrigation '
-            "Department</a> (RID) Lower North-East Hydro Center. The service publishes no "
-            "discharge (m&sup3;/s) figure for these gauges - the field exists but is empty on "
-            "every day in the range - so water level is shown, being the quantity actually "
-            "measured."
+            "<b>Streamflow / water level:</b> Daily stage from the "
+            '<a href="http://hydro-4.com/" target="_blank" rel="noopener">RID</a> Lower-NE '
+            "gauges on the Mun River, downloaded for 01 Nov - 31 Dec 2024. The service "
+            "publishes no discharge (m&sup3;/s) figure for these gauges - the field exists "
+            "but is empty on every day in the range - so water level is shown, being the "
+            "quantity actually measured. The faint line is the daily reading; the solid "
+            "line is the average."
         ),
         "info_src_coverage": (
             "<b>Coverage:</b> Weekly composites across {window}. Heavy cloud on a given week "
@@ -300,12 +301,12 @@ TRANSLATIONS = {
             '<a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>'
         ),
         "info_src_streamflow": (
-            "<b>ปริมาณน้ำ / ระดับน้ำ:</b> ระดับน้ำรายวันของแม่น้ำมูล จาก"
+            "<b>ปริมาณน้ำ / ระดับน้ำ:</b> ระดับน้ำรายวันจากสถานีวัดน้ำแม่น้ำมูล "
             '<a href="http://hydro-4.com/" target="_blank" rel="noopener">กรมชลประทาน</a> '
-            "ศูนย์อุทกวิทยาชลประทานภาคตะวันออกเฉียงเหนือตอนล่าง "
-            "ทั้งนี้ระบบไม่ได้เผยแพร่ค่าอัตราการไหล (ลบ.ม./วินาที) ของสถานีเหล่านี้ "
-            "โดยมีช่องข้อมูลแต่ว่างเปล่าทุกวันในช่วงที่แสดง จึงแสดงระดับน้ำ "
-            "ซึ่งเป็นค่าที่ตรวจวัดจริงแทน"
+            "(สำนักงานอุทกวิทยาภาคตะวันออกเฉียงเหนือตอนล่าง) ดึงข้อมูลช่วง 1 พ.ย. - 31 ธ.ค. 2567 "
+            "ระบบไม่ได้ส่งค่าอัตราการไหล (ลบ.ม./วินาที) สำหรับสถานีเหล่านี้ "
+            "โดยมีฟิลด์ข้อมูลแต่ว่างเปล่าทุกวันในช่วงนี้ จึงแสดงเป็นระดับน้ำซึ่งเป็นค่าที่วัดได้จริง "
+            "เส้นจางคือค่ารายวัน เส้นทึบคือค่าเฉลี่ย"
         ),
         "info_src_coverage": (
             "<b>ช่วงข้อมูล:</b> ภาพรวมรายสัปดาห์ ระหว่าง {window} "
