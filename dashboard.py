@@ -967,17 +967,27 @@ def province_history():
 def load_provinces_for_display(tolerance=0.02):
     """Thailand province outlines, simplified again for rendering.
 
-    The cached GeoJSON is ~650KB of 77 polygons, and streamlit-folium
+    The cached GeoJSON is ~700KB of 77 polygons, and streamlit-folium
     re-sends the whole map (this included) to the browser on *every* rerun -
     Leaflet re-drawing it is the dominant cost of every interaction, ~5s
     measured. Simplifying to ~2km cuts it to under a third with no visible
     difference at the zoom levels this map ever shows.
+
+    Except for Ubon itself, which is exempt. It is the subject of the map
+    rather than context around it, and at 0.02 this step was moving its
+    outline by up to 2.2km - almost as far as the entirely different
+    OpenStreetMap boundary sits from it (3.4km). The result was that
+    switching the source to the province shapefile made no visible
+    difference, because this was smoothing the new detail straight back off.
+    It is one polygon of 77, so drawing it as cached costs ~56KB.
     """
     from shapely.geometry import mapping, shape
 
     features = []
     for f in geo.load_thailand_provinces()["features"]:
-        geom = shape(f["geometry"]).simplify(tolerance, preserve_topology=True)
+        geom = shape(f["geometry"])
+        if f["properties"].get("ADM1_NAME") != FOCUS_PROVINCE:
+            geom = geom.simplify(tolerance, preserve_topology=True)
         if geom.is_empty:
             continue
         features.append({

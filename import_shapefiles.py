@@ -43,8 +43,27 @@ from shapely.geometry import mapping, shape
 from shapely.ops import transform as shapely_transform
 from shapely.ops import unary_union
 
-PROVINCE_SHP = os.path.join("Province Shapefile", "TH_Province.shp")
-TAMBON_SHP = os.path.join("Tambon Shapefile", "Tambon", "TH_Tambon.shp")
+PROVINCE_SHP_NAME = "TH_Province.shp"
+TAMBON_SHP_NAME = "TH_Tambon.shp"
+# Directories skipped when hunting for them - none can contain a shapefile and
+# .git in particular is full of files it would be pointless to stat.
+_SKIP_DIRS = {".git", "__pycache__", ".composite_cache", "display_rasters", ".streamlit"}
+
+
+def find_shapefile(filename, root="."):
+    """Locate a shapefile by name, wherever it sits under the project.
+
+    Searched rather than hard-coded because the layout has already changed
+    once: TH_Tambon.shp began in a nested "Tambon Shapefile/Tambon/" and later
+    moved up to "Tambon Shapefile/". A fixed path turns that kind of tidy-up
+    into a crash, and the filenames are distinctive enough to find.
+    """
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for name in filenames:
+            if name.lower() == filename.lower():
+                return os.path.join(dirpath, name)
+    return None
 # Encodings differ between the two files; each states its own in the .cpg
 # beside it, and guessing wrong turns every Thai name into mojibake.
 PROVINCE_ENCODING = "tis-620"
@@ -71,6 +90,13 @@ DISTRICTS_OUT = "ubon_districts.geojson"
 # Both matter for repo weight: these files ship to Streamlit Cloud.
 PROVINCE_TOLERANCE = 0.005
 DISTRICT_TOLERANCE = 0.001
+# Ubon itself is the subject of the map, drawn as a heavy highlight and looked
+# at closely, so it is kept far finer than the 76 provinces that are only
+# context around it. Raw it is 11129 vertices (450KB of GeoJSON); this keeps
+# it within 55m of that for 67KB, which is well under a line's width at any
+# zoom this map reaches. The 0.005 the others use would put it 554m out -
+# enough to visibly straighten the Mekong meanders along its eastern edge.
+FOCUS_TOLERANCE = 0.0005
 
 # The old "minor district" designation. Every one of Ubon's five was upgraded
 # to a full amphoe years ago; the prefix survives only in this dataset's
@@ -120,11 +146,13 @@ def prepare(geom, tolerance):
     return geom
 
 
-def build_provinces():
-    reader = shapefile.Reader(PROVINCE_SHP, encoding=PROVINCE_ENCODING)
+def build_provinces(path):
+    reader = shapefile.Reader(path, encoding=PROVINCE_ENCODING)
     features = []
     for rec, shp in zip(reader.records(), reader.shapes()):
-        geom = prepare(shape(shp.__geo_interface__), PROVINCE_TOLERANCE)
+        is_focus = rec["PROV_NAME"].strip().upper() == FOCUS_PROVINCE
+        geom = prepare(shape(shp.__geo_interface__),
+                       FOCUS_TOLERANCE if is_focus else PROVINCE_TOLERANCE)
         if geom.is_empty:
             continue
         features.append({
@@ -138,9 +166,9 @@ def build_provinces():
     return {"type": "FeatureCollection", "features": features}
 
 
-def build_districts():
+def build_districts(path):
     """Ubon's amphoe, dissolved up from the tambon polygons that make them."""
-    reader = shapefile.Reader(TAMBON_SHP, encoding=TAMBON_ENCODING)
+    reader = shapefile.Reader(path, encoding=TAMBON_ENCODING)
     groups = defaultdict(list)
     names = {}
     for rec, shp in zip(reader.records(), reader.shapes()):
@@ -179,15 +207,18 @@ def write(path, collection):
 
 
 def main() -> int:
-    for path in (PROVINCE_SHP, TAMBON_SHP):
-        if not os.path.exists(path):
-            print(f"{path} not found - this script needs the local shapefile folders.")
-            return 1
+    province_shp = find_shapefile(PROVINCE_SHP_NAME)
+    tambon_shp = find_shapefile(TAMBON_SHP_NAME)
+    missing = [n for n, p in ((PROVINCE_SHP_NAME, province_shp),
+                              (TAMBON_SHP_NAME, tambon_shp)) if p is None]
+    if missing:
+        print(f"Could not find {', '.join(missing)} anywhere under this folder.")
+        return 1
 
-    print("Provinces ...")
-    write(PROVINCES_OUT, build_provinces())
-    print(f"Districts ({FOCUS_PROVINCE.title()}, dissolved from tambon) ...")
-    write(DISTRICTS_OUT, build_districts())
+    print(f"Provinces from {province_shp} ...")
+    write(PROVINCES_OUT, build_provinces(province_shp))
+    print(f"Districts from {tambon_shp} ({FOCUS_PROVINCE.title()}, dissolved from tambon) ...")
+    write(DISTRICTS_OUT, build_districts(tambon_shp))
     print("Commit both .geojson files; the shapefiles stay gitignored.")
     return 0
 
