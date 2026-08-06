@@ -66,7 +66,20 @@ HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating t
 # map_controls.py (styled after air4laos.adpc.net), not Leaflet's default
 # LayerControl widget.
 BASEMAPS = {
-    "Light": {"tiles": "CartoDB positron", "attr": None},
+    # Esri's Light Gray Canvas rather than CartoDB positron, which was the
+    # default here before. Positron draws OpenStreetMap's own administrative
+    # boundaries into its tiles as dashed pink lines - province and amphoe
+    # both. Those are a different dataset from the shapefiles this app draws,
+    # so every border appeared twice, in two places, a few hundred metres
+    # apart. Switching the tiles off is not an option (they are baked into the
+    # raster) and neither is light_nolabels, which drops only the text.
+    #
+    # This basemap has no administrative boundaries at all, so the only
+    # borders on the map are the ones drawn from the local shapefiles.
+    "Light": {
+        "tiles": "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        "attr": "Esri, HERE, Garmin, OpenStreetMap contributors",
+    },
     "Dark": {"tiles": "CartoDB dark_matter", "attr": None},
     "Classic": {"tiles": "OpenStreetMap", "attr": None},
     "Terrain": {
