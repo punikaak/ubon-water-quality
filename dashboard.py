@@ -53,7 +53,12 @@ PROVINCE_LINE_COLOR = "#9aa3ad"
 # itself a colour scale, so a coloured boundary competed with the data for
 # attention and, at the orange end of that scale, blended into it.
 PROVINCE_FOCUS_COLOR = "#000000"
-DISTRICT_LINE_COLOR = "#6b7684"
+# Lighter and thinner than the province line above it, not darker. The
+# district layer is every amphoe in Thailand - 930 of them - and it used to be
+# the darker of the two, dashed: at country zoom that reads as a grey haze
+# with the province borders lost inside it. Subdividing lines should sit
+# under the lines they subdivide.
+DISTRICT_LINE_COLOR = "#c2c8d0"
 STATION_STROKE_COLOR = "#2b2b3a"
 HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
 
@@ -826,7 +831,7 @@ def turbidity_overlay_rgba(turbidity_map, water_mask):
 def build_legend_html():
     layer_rows = (
         f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{PROVINCE_LINE_COLOR}"></span>{T["legend_province"]}</div>'
-        f'<div class="wq-legend-item"><span class="wq-legend-line-dashed" style="border-top:2px dashed {DISTRICT_LINE_COLOR}"></span>{T["legend_district"]}</div>'
+        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{DISTRICT_LINE_COLOR};height:2px"></span>{T["legend_district"]}</div>'
         f'<div class="wq-legend-item"><span class="wq-legend-circle" style="border:2px solid {STATION_STROKE_COLOR}"></span>{T["legend_pcd_stations"]}</div>'
     )
     turbidity_rows = []
@@ -1222,7 +1227,10 @@ try:
         is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
         return {
             "color": PROVINCE_FOCUS_COLOR if is_focus else PROVINCE_LINE_COLOR,
-            "weight": 3 if is_focus else 1,
+            # 1.4 rather than 1 for the others: with the district layer on,
+            # a province line the same width as its own subdivisions stops
+            # reading as the higher level.
+            "weight": 3 if is_focus else 1.4,
             # fill:False (not just fillOpacity:0) - otherwise the invisible
             # fill still counts as "painted" for hit-testing and the whole
             # province polygon (which covers every station) swallows clicks
@@ -1247,7 +1255,9 @@ try:
     districts_geojson = geo.load_districts()
     district_layer = folium.GeoJson(
         districts_geojson, name="Districts",
-        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 1, "dashArray": "3,3",
+        # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
+        # shows more than a province or two.
+        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
                                    "fill": False, "fillOpacity": 0},
         tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
         show=False,

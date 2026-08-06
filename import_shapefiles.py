@@ -14,26 +14,20 @@ module has to know where the geometry came from.
 
 The two sources
 ---------------
+- Provinces: TH_Province.shp - all 77, UTM zone 47N, TIS-620 names.
 - Amphoe: L05_AdminBoundary_Amphoe_*.shp - GISTDA's 1:50k FGDS layer, WGS84,
-  UTF-8. All 930 of Thailand's amphoe. This is the only geometry that ends up
-  drawn: the province layer is built from it too (see below).
-- Provinces: TH_Province.shp - UTM zone 47N, TIS-620. Used for its province
-  *names*, which the amphoe layer does not carry - it identifies a province
-  only by code.
+  UTF-8. All 930 of Thailand's amphoe. It identifies a district's province by
+  code only, so the province names are joined in from the file above.
 
 They disagree about encoding, projection and which sidecar file declares the
 encoding, and the folders have been reorganised more than once - so rather
 than hard-coding any of that, each source is located by filename pattern and
 its encoding and CRS read from the .prj and .cpg/.cst beside it.
 
-Why provinces are built from the amphoe rather than read from TH_Province
--------------------------------------------------------------------------
-The two datasets disagree along every province border by a few hundred
-metres. Drawing the province layer from one and the district layer from the
-other therefore puts two nearly-parallel lines on the map, which reads as a
-smeared double edge rather than a boundary. A province is the union of its
-districts, so building it that way is both correct and what makes the two
-layers coincide exactly.
+Each layer is read from its own file and nothing is derived from the other.
+Note that the two datasets disagree along province borders by a few hundred
+metres, so with both layers shown a province edge and the district edges
+along it will not sit exactly on top of each other.
 
 Run it after replacing either shapefile:
 
@@ -51,7 +45,7 @@ from collections import defaultdict
 
 import shapefile  # pyshp - see requirements-dev.txt
 from rasterio.warp import transform as warp_transform
-from shapely.geometry import MultiPolygon, Polygon, mapping, shape
+from shapely.geometry import mapping, shape
 from shapely.ops import transform as shapely_transform
 from shapely.ops import unary_union
 
@@ -70,13 +64,10 @@ DISTRICTS_OUT = "thailand_districts.geojson"
 # 77 provinces and every byte of them is re-sent to the browser on each
 # Streamlit rerun (streamlit-folium reserialises the whole map), while only
 # Ubon is ever looked at closely:
-#   Ubon's districts, and the province outline built from them, are what the
-#   reader actually inspects, and the display path draws the focus province
-#   as cached rather than re-simplifying it - so 0.0005 (~55m) is what is
-#   seen.
+#   Ubon and its districts are what the reader actually inspects, and nothing
+#   simplifies them again downstream, so 0.0005 (~55m) is what is seen.
 #   Everything else is context at country zoom, where 0.01 (~1.1km) is around
-#   a pixel; the other 76 provinces are re-simplified to 0.02 for drawing
-#   regardless.
+#   a pixel.
 # Measured whole-country cost: 0.0005 everywhere would be 8.9MB, 0.005 1.6MB,
 # this split 1.1MB.
 FOCUS_TOLERANCE = 0.0005
@@ -87,13 +78,6 @@ CONTEXT_TOLERANCE = 0.01
 # on the map would be wrong as well as noisy.
 KING_AMPHOE_EN = "KING AMPHOE"
 THAI_PREFIXES = ("กิ่งอำเภอ", "อำเภอ", "จังหวัด")
-
-# The province shapefile carries a stale English label for province 38: it
-# says NONG KHAI, but the Thai name beside it is บึงกาฬ and its amphoe are
-# Bung Kan, Seka, Si Wilai and so on. It is Bueng Kan, split out of Nong Khai
-# in 2011; only the English column was never updated. Uncorrected, the map
-# labels two different provinces "Nong Khai".
-ENGLISH_NAME_FIXES = {"38": "Bueng Kan"}
 
 
 def find_one(pattern):
@@ -173,35 +157,20 @@ def to_wgs84(geom, src_crs):
         lambda xs, ys: tuple(warp_transform(src_crs, DST_CRS, list(xs), list(ys))), geom)
 
 
-def outer_ring_only(geom):
-    """Drop the interior rings from a dissolved boundary.
-
-    Unioning a province's districts leaves a hairline gap wherever two
-    neighbours' shared edge simplified a fraction differently - a few hundred
-    of them country-wide, each a tiny fraction of a square kilometre. They are
-    digitisation slivers rather than enclaves, and these layers are drawn as
-    outlines rather than fills, so each one would paint as a speck of stray
-    boundary inside a province. The exterior ring, which is what gets drawn,
-    is untouched.
-    """
-    parts = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
-    cleaned = [Polygon(p.exterior) for p in parts if not p.is_empty]
-    return cleaned[0] if len(cleaned) == 1 else MultiPolygon(cleaned)
 
 
 def province_names(path):
     """{province code: (english, thai)} from the province shapefile.
 
-    This file is read for its names alone. The amphoe layer identifies a
-    province only by a numeric code, and nothing else in the project maps
-    those codes to names.
+    Used to label districts with the province they belong to: the amphoe
+    layer identifies a province only by a numeric code, and nothing else in
+    the project maps those codes to names.
     """
     enc = sidecar_encoding(path, "tis-620")
     out = {}
     for rec in shapefile.Reader(path, encoding=enc).records():
-        code = str(rec["PROV_CODE"]).strip()
-        out[code] = (ENGLISH_NAME_FIXES.get(code, clean_en(rec["PROV_NAME"])),
-                     clean_th(rec["PROV_NAMT"]))
+        out[str(rec["PROV_CODE"]).strip()] = (clean_en(rec["PROV_NAME"]),
+                                              clean_th(rec["PROV_NAMT"]))
     return out
 
 
@@ -259,36 +228,24 @@ def build_districts(path, names_by_code):
     return {"type": "FeatureCollection", "features": features}
 
 
-def build_provinces(district_collection):
-    """Every province, as the union of its own districts.
-
-    The union is taken over the *already simplified* district geometries, so
-    a shared edge is the identical vertex list in both layers and the province
-    outline cannot sit a pixel off the district edges drawn on top of it.
-
-    Grouped by province code, not name: two provinces in the source share the
-    English name "Nong Khai" (see ENGLISH_NAME_FIXES), and grouping by name
-    silently merged them into one 76-province layer.
-    """
-    groups = defaultdict(list)
-    names = {}
-    for f in district_collection["features"]:
-        key = f["properties"]["ADM1_CODE"]
-        groups[key].append(shape(f["geometry"]))
-        names[key] = (f["properties"]["ADM1_NAME"], f["properties"]["ADM1_NAME_TH"])
-
+def build_provinces(path):
+    """All 77 provinces, straight from the province shapefile."""
+    crs, enc = sidecar_crs(path), sidecar_encoding(path, "tis-620")
+    reader = shapefile.Reader(path, encoding=enc)
     features = []
-    for code, parts in sorted(groups.items()):
-        geom = parts[0] if len(parts) == 1 else unary_union(parts)
+    for rec, shp in zip(reader.records(), reader.shapes()):
+        name_en = clean_en(rec["PROV_NAME"])
+        geom = shape(shp.__geo_interface__)
         if not geom.is_valid:
             geom = geom.buffer(0)
-        geom = outer_ring_only(geom)
+        geom = to_wgs84(geom, crs)
+        tol = FOCUS_TOLERANCE if name_en.upper() == FOCUS_PROVINCE else CONTEXT_TOLERANCE
+        geom = geom.simplify(tol, preserve_topology=True)
         if geom.is_empty:
             continue
-        name_en, name_th = names[code]
         features.append({
             "type": "Feature",
-            "properties": {"ADM1_NAME": name_en, "ADM1_NAME_TH": name_th},
+            "properties": {"ADM1_NAME": name_en, "ADM1_NAME_TH": clean_th(rec["PROV_NAMT"])},
             "geometry": mapping(geom),
         })
     return {"type": "FeatureCollection", "features": features}
@@ -310,13 +267,10 @@ def main() -> int:
             return 1
         print(f"{label:9} <- {path}  [{sidecar_crs(path)}, {sidecar_encoding(path)}]")
 
-    names = province_names(province_shp)
-    print(f"\nDistricts (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
-    districts = build_districts(district_shp, names)
-    write(DISTRICTS_OUT, districts)
-
-    print("Provinces (each built from its own districts) ...")
-    write(PROVINCES_OUT, build_provinces(districts))
+    print(f"\nProvinces (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
+    write(PROVINCES_OUT, build_provinces(province_shp))
+    print(f"Districts (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
+    write(DISTRICTS_OUT, build_districts(district_shp, province_names(province_shp)))
     print("Commit both .geojson files; the shapefiles stay gitignored.")
     return 0
 

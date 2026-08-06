@@ -142,14 +142,14 @@ the `.prj` and `.cpg`/`.cst` beside it, because the two disagree on all three
 (UTM 47N / TIS-620 against WGS84 / UTF-8) and the folders have been
 reorganised more than once.
 
-**Every province is built as the union of its own districts**, rather than
-read from the province shapefile's geometry. The two datasets disagree along
-every province border by a few hundred metres, and drawing one layer from each
-put two nearly-parallel lines on the map that read as a smeared double edge. A
-province is the union of its districts, so building it that way is both
-correct and what makes the layers coincide exactly - verified: identical outer
-rings for all 77. The province shapefile is still read, for the province
-*names*, which the amphoe layer does not carry.
+Each layer is read from its own file and nothing is derived from the other.
+The province shapefile is also read for the province *names*, which the
+amphoe layer does not carry - it identifies a district's province by code.
+
+One consequence worth knowing: the two datasets disagree along province
+borders by a few hundred metres, so with both layers shown, a province edge
+and the district edges running along it do not sit exactly on top of each
+other.
 
 ### Cost
 
@@ -167,21 +167,14 @@ the whole country at 0.0005 would be 8.9MB, at 0.005 1.6MB, at the 0.01 used
   draw their internal edges as boundaries.
 - The province of a district comes from `AMP_CODE`'s first two digits, not the
   `PRV_CODE` column. They agree wherever `PRV_CODE` is filled in, but 16
-  records leave it blank - among them the whole of Nong Bua Lamphu - and those
-  would otherwise vanish, taking their province's outline with them. The same
-  16 records have no name either, so those fall back to the code.
-- Provinces are keyed by code, not name. The province shapefile gives two
-  different provinces the English name "Nong Khai": code 38 is really Bueng
-  Kan, split off in 2011, and only its English column was never updated.
-  `ENGLISH_NAME_FIXES` corrects the label; keying by code is what stops the
-  two merging into one polygon.
-- The union is taken *after* each district is simplified, so shared edges are
-  the identical vertex list in both layers. Unioning first and simplifying
-  after would move the province edge off the district edges again.
-- That union leaves a few hundred hairline slivers where two neighbours'
-  shared edge simplified fractionally differently. They are dropped: the layer
-  is drawn as an outline, so each would otherwise paint as a speck of stray
-  boundary inside the province.
+  records leave it blank - among them the whole of Nong Bua Lamphu, whose six
+  districts would otherwise be unattributable to any province. The same 16
+  records have no name either, so those fall back to the code.
+- The province shapefile gives two different provinces the English name
+  "Nong Khai". Code 38 is really Bueng Kan, split off in 2011, and only its
+  English column was never updated - its Thai name is บึงกาฬ and its amphoe
+  are Bung Kan, Seka, Si Wilai. The data is passed through as-is, so both
+  appear as "Nong Khai" on hover.
 
 ## Why Google Drive instead of Cloud Storage
 
