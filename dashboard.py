@@ -202,7 +202,7 @@ TRANSLATIONS = {
         ),
         "info_src_streamflow": (
             "<b>Streamflow / water level:</b> Daily Mun River stage from the "
-            '<a href="https://hydro-4.rid.go.th" target="_blank" rel="noopener">Royal Irrigation '
+            '<a href="http://hydro-4.com/" target="_blank" rel="noopener">Royal Irrigation '
             "Department</a> (RID) Lower North-East Hydro Center. The service publishes no "
             "discharge (m&sup3;/s) figure for these gauges - the field exists but is empty on "
             "every day in the range - so water level is shown, being the quantity actually "
@@ -301,7 +301,7 @@ TRANSLATIONS = {
         ),
         "info_src_streamflow": (
             "<b>ปริมาณน้ำ / ระดับน้ำ:</b> ระดับน้ำรายวันของแม่น้ำมูล จาก"
-            '<a href="https://hydro-4.rid.go.th" target="_blank" rel="noopener">กรมชลประทาน</a> '
+            '<a href="http://hydro-4.com/" target="_blank" rel="noopener">กรมชลประทาน</a> '
             "ศูนย์อุทกวิทยาชลประทานภาคตะวันออกเฉียงเหนือตอนล่าง "
             "ทั้งนี้ระบบไม่ได้เผยแพร่ค่าอัตราการไหล (ลบ.ม./วินาที) ของสถานีเหล่านี้ "
             "โดยมีช่องข้อมูลแต่ว่างเปล่าทุกวันในช่วงที่แสดง จึงแสดงระดับน้ำ "
