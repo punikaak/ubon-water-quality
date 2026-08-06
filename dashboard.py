@@ -145,13 +145,6 @@ TRANSLATIONS = {
         "discharge": "Discharge",
         "water_level": "Water level",
         "streamflow_unavailable": "Streamflow gauge service unavailable right now.",
-        "streamflow_note": (
-            "Daily stage from the RID Lower-NE gauges on the Mun River, downloaded for "
-            "01 Nov - 31 Dec 2024. The service publishes no discharge (m^3/s) figure for "
-            "these gauges - the field exists but is empty on every day in the range - so "
-            "water level is shown, being the quantity actually measured. The faint line is "
-            "the daily reading; the solid line is the average."
-        ),
         "month_label": "Month",
         "month_all": "Nov-Dec",
         "month_nov": "Nov",
@@ -251,12 +244,6 @@ TRANSLATIONS = {
         "discharge": "อัตราการไหล",
         "water_level": "ระดับน้ำ",
         "streamflow_unavailable": "ไม่สามารถเชื่อมต่อระบบสถานีวัดน้ำได้ในขณะนี้",
-        "streamflow_note": (
-            "ระดับน้ำรายวันจากสถานีวัดน้ำแม่น้ำมูล กรมชลประทาน (สำนักงานอุทกวิทยาภาคตะวันออกเฉียงเหนือตอนล่าง) "
-            "ดึงข้อมูลช่วง 1 พ.ย. - 31 ธ.ค. 2567 ระบบไม่ได้ส่งค่าอัตราการไหล (ลบ.ม./วินาที) สำหรับสถานีเหล่านี้ "
-            "โดยมีฟิลด์ข้อมูลแต่ว่างเปล่าทุกวันในช่วงนี้ จึงแสดงเป็นระดับน้ำซึ่งเป็นค่าที่วัดได้จริง "
-            "เส้นจางคือค่ารายวัน เส้นทึบคือค่าเฉลี่ย"
-        ),
         "month_label": "เดือน",
         "month_all": "พ.ย.-ธ.ค.",
         "month_nov": "พ.ย.",
@@ -463,8 +450,6 @@ st.markdown(
         padding:6px 0 0 0; font-size:0.82rem; }}
     .sf-name {{ font-size:0.68rem; color:{P['muted']}; padding-bottom:6px; line-height:1.3; }}
     .sf-value {{ font-weight:700; }}
-    .sf-note {{ font-size:0.68rem; color:{P['muted']}; line-height:1.4;
-        border-left:3px solid {P['border']}; padding:2px 0 2px 8px; margin-top:6px; }}
 
     .risk-row {{ display:flex; justify-content:space-between; align-items:center;
         padding: 6px 10px 0 10px; border-radius: 10px; color:{P['text']}; }}
@@ -1552,7 +1537,9 @@ with st.sidebar:
                 f'<div class="sf-name"><b>{code}</b> &middot; {rid.station_name(code)}</div>',
                 unsafe_allow_html=True,
             )
-    st.markdown(f'<div class="sf-note">{T["streamflow_note"]}</div>', unsafe_allow_html=True)
+    # The note that used to sit here - what the gauges are, why water level is
+    # shown rather than discharge, and what the two chart lines mean - now lives
+    # only in the Information modal (info_src_streamflow).
 
     # --- District ranking by turbidity ---
     st.markdown(f"#### {T['district_ranking']}")
