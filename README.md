@@ -126,23 +126,39 @@ any of them to render.
 ## Boundary data
 
 Province and district outlines come from Thai shapefiles kept locally in
-`Province Shapefile/` and `Tambon Shapefile/`. They are **not** in the repo -
-together they are ~68MB and `TH_Tambon.shp` alone exceeds GitHub's 50MB file
-limit - so they are converted once into two small GeoJSON caches that are:
+`Province Shapefile/` and `Amphoe Shapefile/`. They are **not** in the repo -
+~51MB together, and the deployed app has nothing but the repo - so they are
+converted once into two small GeoJSON caches that are:
 
 ```bash
 python import_shapefiles.py   # writes thailand_provinces.geojson + ubon_districts.geojson
 ```
 
 Those two files are committed, and the deployed app reads only them. If you
-replace either shapefile, re-run the script and commit the output.
+replace either shapefile, re-run the script and commit the output. The script
+locates each shapefile by filename pattern and reads its encoding and CRS from
+the `.prj` and `.cpg`/`.cst` beside it, because the two disagree on all three
+(UTM 47N / TIS-620 against WGS84 / UTF-8) and the folders have been
+reorganised more than once.
 
-The tambon (subdistrict) file is dissolved by amphoe to produce the district
-layer. That is more complete than the FAO GAUL data this replaced - 25 of
-Ubon's districts against GAUL's 20 - and it carries Thai names, so boundary
-hover labels now follow the interface language. As a cross-check on the
-conversion, the 25 dissolved districts fill the province outline from the
-separate province shapefile to within 0.02% by area.
+**Ubon's own outline is the union of its 25 amphoe, not the province
+shapefile's version of it.** The two datasets disagree along that border by a
+few hundred metres, and drawing the province from one while drawing the
+districts from the other put two nearly-parallel lines on the map that read as
+a smeared double edge. A province is the union of its districts, so building
+it that way is both correct and what makes the two layers coincide exactly -
+verified: identical outer rings, 0.0m maximum gap. The other 76 provinces,
+which are only context, still come from the province shapefile.
+
+Two details that only matter if you regenerate:
+
+- Unioning happens *after* each district is simplified, so shared edges are
+  the identical vertex list in both layers. Unioning first and simplifying
+  after would move the province edge off the district edges again.
+- That union leaves ~314 hairline slivers where two neighbours' shared edge
+  simplified fractionally differently (largest 0.05km2 against the province's
+  16063). They are dropped: the layer is drawn as an outline, so each would
+  otherwise paint as a speck of stray boundary inside the province.
 
 ## Why Google Drive instead of Cloud Storage
 

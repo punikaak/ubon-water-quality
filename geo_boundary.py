@@ -2,9 +2,11 @@
 
 - All-Thailand province boundaries (77): local TH_Province shapefile, cached
   to thailand_provinces.geojson with both English and Thai names.
-- Ubon district (amphoe) boundaries (25): local TH_Tambon shapefile, its
-  subdistrict polygons dissolved by amphoe, cached to ubon_districts.geojson
-  with both names.
+- Ubon district (amphoe) boundaries (25): local GISTDA FGDS 1:50k amphoe
+  shapefile, cached to ubon_districts.geojson with both names.
+  Ubon's own outline in thailand_provinces.geojson is the union of these 25,
+  not the province shapefile's own version of it - the two datasets disagree
+  along that border by a few hundred metres, which drew as a doubled edge.
   Both of the above are written by import_shapefiles.py - see that module for
   why the shapefiles are converted rather than read directly.
 - Station place names: OpenStreetMap Nominatim reverse geocoding, cached to

@@ -24,9 +24,14 @@ ubon_water.json
 # dead weight on every Streamlit Cloud deploy.
 Province Shapefile/
 Tambon Shapefile/
+Amphoe Shapefile/
 *.shp
 *.shx
 *.dbf
+*.prj
+*.cpg
+*.cst
+*.qpj
 *.sr.lock
 
 # Runtime cache for composites downloaded from Drive by the deployed app.
