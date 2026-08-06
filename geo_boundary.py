@@ -1,16 +1,15 @@
 """Boundary and reference-layer geometry for the Mekong Water Quality dashboard.
 
-- District (amphoe) boundaries, all 930 in Thailand: local GISTDA FGDS 1:50k
-  amphoe shapefile, cached to thailand_districts.geojson with English and
-  Thai names and the province each belongs to.
-- Province boundaries, all 77: each the union of its own districts from the
-  layer above, cached to thailand_provinces.geojson. Not taken from the
-  province shapefile's own geometry - that dataset and the amphoe one
-  disagree along every province border by a few hundred metres, which drew as
-  a doubled edge wherever both layers were shown. The province shapefile is
-  still read, for its province names, which the amphoe layer lacks.
-  Both files are written by import_shapefiles.py - see that module for why
-  the shapefiles are converted rather than read directly.
+- District (amphoe) boundaries, all 930 in Thailand: from Amphoe Shapefile.zip
+  (GISTDA's FGDS 1:50k amphoe layer), cached to thailand_districts.geojson
+  with English and Thai names and the province each belongs to.
+- Province boundaries, all 77: from Province Shapefile.zip (TH_Province),
+  cached to thailand_provinces.geojson.
+  Those two local archives are the only source of boundary geometry here, and
+  neither layer is derived from the other - each is drawn as its own shapefile
+  has it. The province file is also read for its province names, which the
+  amphoe layer lacks. Both caches are written by import_shapefiles.py; see
+  that module for why the archives are converted rather than read at runtime.
 - Station place names: OpenStreetMap Nominatim reverse geocoding, cached to
   station_locations.json.
 - Ubon Ratchathani outline: OpenStreetMap Nominatim (relation 1908830),

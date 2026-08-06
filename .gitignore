@@ -18,10 +18,12 @@ Figure_*.png
 # Dead/unused cache (superseded by thailand_provinces.geojson etc.)
 ubon_water.json
 
-# Raw shapefiles opened in QGIS. Nothing in the app reads these - boundaries
-# come from Earth Engine / OSM and are cached as GeoJSON (see geo_boundary.py)
-# - and TH_Tambon.shp alone is 52MB, over GitHub's recommended file limit and
-# dead weight on every Streamlit Cloud deploy.
+# The boundary source archives, and anything unpacked from them. These ARE
+# where every province and district line comes from - but they are converted
+# once by import_shapefiles.py into the two committed .geojson caches that the
+# app actually reads, so the repo never needs them. Keeping them out matters:
+# the amphoe .shp alone is 40MB, over GitHub's recommended file limit and dead
+# weight on every Streamlit Cloud deploy.
 Province Shapefile/
 Tambon Shapefile/
 Amphoe Shapefile/
@@ -50,5 +52,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Shapefile archives dropped in alongside the folders above.
+# The boundary archives themselves: "Province Shapefile.zip", "Amphoe
+# Shapefile.zip". Blanket rather than by name, so a re-zipped or renamed drop
+# cannot be committed by accident.
 *.zip

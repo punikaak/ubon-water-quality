@@ -125,40 +125,70 @@ any of them to render.
 
 ## Boundary data
 
-**No administrative boundaries are drawn on the map** - no provinces, no
-districts, no outline around Ubon. What the app draws on top of the basemap is
-the turbidity overlay and the station markers, and nothing else. The basemap
-carries its own faint borders.
+Both layers cover the whole country: all 77 provinces and all 930 amphoe.
+Every province and district line on the map comes from two local archives and
+nothing else - `Province Shapefile.zip` and `Amphoe Shapefile.zip`. No part of
+either layer comes from OpenStreetMap, FAO GAUL, or any other source.
 
-The two boundary files are still generated and committed, because two things
-compute with them rather than draw them:
-
-- `geo.load_province("Ubon Ratchathani")` supplies the bounds the map first
-  fits to.
-- `geo.load_districts()` feeds the sidebar's per-district turbidity ranking,
-  filtered to Ubon.
-
-They come from Thai shapefiles kept locally in `Province Shapefile/` and
-`Amphoe Shapefile/`, which are **not** in the repo - ~51MB together, and the
-deployed app has nothing but the repo. Regenerate after replacing either:
+The archives are **not** in the repo - ~39MB zipped, and the deployed app has
+nothing but the repo - so they are converted once into two GeoJSON caches:
 
 ```bash
 python import_shapefiles.py   # writes thailand_provinces + thailand_districts .geojson
 ```
 
-The script locates each shapefile by filename pattern and reads its encoding
-and CRS from the `.prj` and `.cpg`/`.cst` beside it, because the two disagree
-on all three (UTM 47N / TIS-620 against WGS84 / UTF-8) and the folders have
-been reorganised more than once. Simplification is proportional to each
-polygon's own area (`SHAPE_TOLERANCE_FRACTION`), not a fixed distance: Thai
-amphoe span four orders of magnitude in area, and one absolute tolerance
-either leaves the big ones untouched or destroys the small ones. Measured
-against the source, worst 93.8% IoU and median 97.4% across all 930.
+Those two files are committed, and the deployed app reads only them. If you
+replace either archive, re-run the script and commit the output. The script
+reads the `.shp`/`.shx`/`.dbf` straight out of the zip as in-memory streams and
+never unpacks anything to disk, so the archive stays the one copy of the source
+geometry. It finds each archive by filename pattern, finds the shapefile inside
+it, and reads that layer's encoding and CRS from the packed `.prj` and
+`.cpg`/`.cst`, because the two disagree on all three (UTM 47N / TIS-620 against
+WGS84 / UTF-8) and have been reorganised more than once.
+
+Each layer is read from its own shapefile and nothing is derived from the
+other. The province shapefile is also read for the province *names*, which the
+amphoe layer does not carry - it identifies a district's province by code.
+
+One consequence worth knowing: the two datasets disagree along province
+borders by a few hundred metres, so with both layers shown, a province edge
+and the district edges running along it do not sit exactly on top of each
+other.
+
+### Simplification, and its cost
+
+Both layers are simplified before being written, because streamlit-folium
+reserialises the whole map on every rerun, so every byte is paid on each
+interaction. The tolerance is **proportional to each polygon's own area**,
+not a fixed distance - `SHAPE_TOLERANCE_FRACTION` in `import_shapefiles.py`.
+
+That matters because Thai amphoe span four orders of magnitude in area. A
+fixed 0.01° (~1.1km) leaves a 5000km² rural amphoe untouched and destroys
+Bangkok's khet, which are 6-28km²: measured against the source, the worst
+district came out at **30%** IoU and most of Bangkok's under 75%. Tightening
+the fixed value does not fix it - 0.001° costs 5.6MB and still leaves the
+worst at 85%. Scaling by `sqrt(area)` holds every feature to the same
+*relative* fidelity whatever its size.
+
+Measured against the shapefiles after the change:
+
+| | worst | median | below 90% |
+|---|---|---|---|
+| 930 districts | 93.8% | 97.4% | 0 |
+| 77 provinces | 94.2% | 97.3% | 0 |
+
+Ubon and its 25 districts ignore the proportional rule and take a fixed, much
+finer `FOCUS_TOLERANCE` - they are the subject of the map, not context.
+
+The price: map payload 717KB → 3111KB, and a date change roughly 1.3s → 2s.
+`SHAPE_TOLERANCE_FRACTION` is the single knob if that is the wrong trade;
+raising it shrinks the files and lowers the fidelity table above.
 
 ### Details that only matter if you regenerate
 
 - Districts are grouped by `AMP_CODE` before use: 37 amphoe are split across
-  several records, and emitting those separately would duplicate names.
+  several records, and emitting those separately would duplicate names and
+  draw their internal edges as boundaries.
 - The province of a district comes from `AMP_CODE`'s first two digits, not the
   `PRV_CODE` column. They agree wherever `PRV_CODE` is filled in, but 16
   records leave it blank - among them the whole of Nong Bua Lamphu, whose six
@@ -167,7 +197,8 @@ against the source, worst 93.8% IoU and median 97.4% across all 930.
 - The province shapefile gives two different provinces the English name
   "Nong Khai". Code 38 is really Bueng Kan, split off in 2011, and only its
   English column was never updated - its Thai name is บึงกาฬ and its amphoe
-  are Bung Kan, Seka, Si Wilai. The data is passed through as-is.
+  are Bung Kan, Seka, Si Wilai. The data is passed through as-is, so both
+  appear as "Nong Khai" on hover.
 
 ## Why Google Drive instead of Cloud Storage
 
@@ -183,8 +214,8 @@ billing requirement, so that's the storage backend for now
 
 - `dashboard.py` - the Streamlit app
 - `turbidity_model.py` - the calibrated MLP inference pipeline
-- `geo_boundary.py` - province/district/road reference layers (local shapefiles + OpenStreetMap)
-- `import_shapefiles.py` - converts the local Thai shapefiles into the two boundary caches (see below)
+- `geo_boundary.py` - province/district boundaries (local shapefile archives), plus road and place-name layers (OpenStreetMap)
+- `import_shapefiles.py` - converts the local shapefile archives into the two boundary caches (see below)
 - `province_composite.py` - loads Sentinel-2 composites, from local disk or Drive
 - `drive_client.py` - shared Google Drive access (dashboard read path)
 - `rid_streamflow.py` - RID streamflow API + the `mun_levels.json` snapshot it writes (see module docstring for the API's limitations)

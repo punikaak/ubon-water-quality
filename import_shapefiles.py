@@ -1,16 +1,23 @@
 """Build the dashboard's province and district boundaries from the local Thai
-shapefiles (Province Shapefile/, Amphoe Shapefile/).
+shapefile archives - Province Shapefile.zip and Amphoe Shapefile.zip.
 
-Why a conversion step rather than reading the shapefiles directly
-----------------------------------------------------------------
-The two shapefiles total ~51MB, and the deployed app on Streamlit Cloud has
-nothing but the repo, which cannot carry files that size. Reading them at
-runtime would work on this machine and fail on the website.
+Those two zips are the only source of boundary geometry in this project. No
+part of the map's province or district lines comes from OpenStreetMap, from
+FAO GAUL, or from anywhere else, and neither layer is derived from the other:
+each is read from its own shapefile and drawn as that shapefile has it.
+
+Why a conversion step rather than reading the zips directly
+-----------------------------------------------------------
+They total ~39MB zipped (~54MB inside), and the deployed app on Streamlit
+Cloud has nothing but the repo, which cannot carry files that size. Reading
+them at runtime would work on this machine and fail on the website.
 
 So they are converted once, here, into the two GeoJSON caches the app loads
 (see geo_boundary.load_thailand_provinces / load_districts). Those are small
 enough to commit, which keeps the deployed site working and means no other
-module has to know where the geometry came from.
+module has to know where the geometry came from. The GeoJSON is a rendering
+of these zips and nothing else - re-run this script and it is rebuilt from
+them.
 
 The two sources
 ---------------
@@ -20,28 +27,32 @@ The two sources
   code only, so the province names are joined in from the file above.
 
 They disagree about encoding, projection and which sidecar file declares the
-encoding, and the folders have been reorganised more than once - so rather
-than hard-coding any of that, each source is located by filename pattern and
-its encoding and CRS read from the .prj and .cpg/.cst beside it.
+encoding, and have been reorganised more than once - so rather than
+hard-coding any of that, each archive is located by filename pattern, its
+shapefile found inside, and its encoding and CRS read from the .prj and
+.cpg/.cst packed alongside.
 
-Each layer is read from its own file and nothing is derived from the other.
 Note that the two datasets disagree along province borders by a few hundred
 metres, so with both layers shown a province edge and the district edges
-along it will not sit exactly on top of each other.
+along it will not sit exactly on top of each other. That is what the source
+data says; it is not corrected here, because correcting it would mean drawing
+something neither shapefile contains.
 
-Run it after replacing either shapefile:
+Run it after replacing either zip:
 
     python import_shapefiles.py
 
-Then commit the two .geojson files it writes. The shapefiles themselves are
-gitignored on purpose (see .gitignore).
+Then commit the two .geojson files it writes. The zips themselves, and any
+folder unpacked from them, are gitignored on purpose (see .gitignore).
 """
 import glob
+import io
 import json
 import math
 import os
 import re
 import sys
+import zipfile
 from collections import defaultdict
 
 import shapefile  # pyshp - see requirements-dev.txt
@@ -50,11 +61,11 @@ from shapely.geometry import mapping, shape
 from shapely.ops import transform as shapely_transform
 from shapely.ops import unary_union
 
-# Filename patterns rather than paths. The province file has kept its name
-# while moving folders; the amphoe file's name carries a dataset version
+# Filename patterns rather than paths. The province archive has kept its name
+# while moving folders; the amphoe shapefile inside carries a dataset version
 # ("..._2011_50k_FGDS_beta") that will change when the dataset does.
-PROVINCE_GLOB = "**/*Province*.shp"
-DISTRICT_GLOB = "**/*Amphoe*.shp"
+PROVINCE_GLOB = "*Province*.zip"
+DISTRICT_GLOB = "*Amphoe*.zip"
 
 DST_CRS = "EPSG:4326"
 FOCUS_PROVINCE = "UBON RATCHATHANI"
@@ -89,54 +100,93 @@ KING_AMPHOE_EN = "KING AMPHOE"
 THAI_PREFIXES = ("กิ่งอำเภอ", "อำเภอ", "จังหวัด")
 
 
-def find_one(pattern):
-    """The single shapefile matching `pattern`, or None.
+def find_zip(pattern):
+    """The single archive matching `pattern` in this folder, or None."""
+    hits = sorted(glob.glob(pattern))
+    return hits[0] if hits else None
 
-    Skips the QGIS lock files that appear beside an open layer, which glob
-    otherwise picks up because they end in .shp.<something>.
+
+class ZippedShapefile:
+    """The one shapefile inside a local .zip, read without unpacking it.
+
+    pyshp is handed the .shp/.shx/.dbf as in-memory streams rather than
+    paths, so nothing is ever written to disk. That is deliberate: the zip is
+    this project's source of truth for boundaries, and an extracted copy
+    sitting beside it is one more thing that can drift out of step with it or
+    be read by mistake.
+
+    Encoding and CRS are read from the .cpg/.cst and .prj packed in the same
+    archive rather than assumed - see the module docstring for why the two
+    archives cannot share one assumption.
     """
-    hits = [p for p in glob.glob(pattern, recursive=True)
-            if p.lower().endswith(".shp") and ".git" not in p]
-    return sorted(hits)[0] if hits else None
 
+    def __init__(self, zip_path, default_encoding="utf-8"):
+        self.zip_path = zip_path
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+            self.member = self._find_member(names)
+            stem = self.member[:-len(".shp")]
+            self.encoding = self._encoding(zf, names, stem, default_encoding)
+            self.crs = self._crs(zf, names, stem)
+            parts = {ext: io.BytesIO(zf.read(self._sidecar(names, stem, ext)))
+                     for ext in (".shp", ".shx", ".dbf")}
+        self.reader = shapefile.Reader(shp=parts[".shp"], shx=parts[".shx"],
+                                       dbf=parts[".dbf"], encoding=self.encoding)
 
-def sidecar_encoding(shp_path, default="utf-8"):
-    """The character encoding a shapefile declares for its .dbf.
+    def _find_member(self, names):
+        """The archive's .shp entry.
 
-    Read rather than assumed: the province file says TIS-620 in a .cpg, the
-    amphoe file says UTF-8 in a .cst, and decoding Thai with the wrong one
-    turns every name into mojibake without raising anything.
-    """
-    stem = os.path.splitext(shp_path)[0]
-    for ext in (".cpg", ".cst", ".CPG", ".CST"):
-        try:
-            with open(stem + ext, encoding="ascii") as f:
-                declared = f.read().strip()
+        Matched on the exact extension, so the QGIS lock files left beside an
+        open layer - "...shp.HOSTNAME.1234.sr.lock" - are not mistaken for the
+        layer itself.
+        """
+        hits = sorted(n for n in names if n.lower().endswith(".shp"))
+        if len(hits) != 1:
+            raise ValueError(f"{self.zip_path}: expected one .shp inside, found {len(hits)}")
+        return hits[0]
+
+    @staticmethod
+    def _sidecar(names, stem, ext):
+        """The archive entry `stem` + `ext`, in whatever case it was zipped."""
+        for name in names:
+            if name.lower() == (stem + ext).lower():
+                return name
+        raise KeyError(f"{stem}{ext} missing from the archive")
+
+    def _encoding(self, zf, names, stem, default):
+        """The character encoding this shapefile declares for its .dbf.
+
+        Read rather than assumed: the province file says TIS-620 in a .cpg,
+        the amphoe file says UTF-8 in a .cst, and decoding Thai with the wrong
+        one turns every name into mojibake without raising anything.
+        """
+        for ext in (".cpg", ".cst"):
+            try:
+                declared = zf.read(self._sidecar(names, stem, ext)).decode("ascii").strip()
+            except KeyError:
+                continue
             if declared:
                 return declared
-        except OSError:
-            continue
-    return default
-
-
-def sidecar_crs(shp_path, default="EPSG:4326"):
-    """The CRS a shapefile declares in its .prj, as far as is needed here.
-
-    Deliberately a two-case reading rather than a real WKT parser: these
-    files are either already geographic WGS84 or Thailand's UTM zone 47N, and
-    pulling in a full projection library to tell those apart would be the only
-    reason this script needed one.
-    """
-    try:
-        with open(os.path.splitext(shp_path)[0] + ".prj", encoding="ascii", errors="ignore") as f:
-            wkt = f.read()
-    except OSError:
         return default
-    if "PROJCS" not in wkt:
-        return "EPSG:4326"
-    if re.search(r"UTM.?[_ ]?Zone.?[_ ]?47", wkt, re.I):
-        return "EPSG:32647"
-    raise ValueError(f"{shp_path}: projected CRS that this script does not know how to read:\n{wkt}")
+
+    def _crs(self, zf, names, stem):
+        """The CRS this shapefile declares in its .prj, as far as is needed here.
+
+        Deliberately a two-case reading rather than a real WKT parser: these
+        files are either already geographic WGS84 or Thailand's UTM zone 47N,
+        and pulling in a full projection library to tell those apart would be
+        the only reason this script needed one.
+        """
+        try:
+            wkt = zf.read(self._sidecar(names, stem, ".prj")).decode("ascii", errors="ignore")
+        except KeyError:
+            return DST_CRS
+        if "PROJCS" not in wkt:
+            return "EPSG:4326"
+        if re.search(r"UTM.?[_ ]?Zone.?[_ ]?47", wkt, re.I):
+            return "EPSG:32647"
+        raise ValueError(
+            f"{self.zip_path}: projected CRS this script does not know how to read:\n{wkt}")
 
 
 def clean_en(raw: str) -> str:
@@ -175,22 +225,21 @@ def to_wgs84(geom, src_crs):
 
 
 
-def province_names(path):
+def province_names(layer):
     """{province code: (english, thai)} from the province shapefile.
 
     Used to label districts with the province they belong to: the amphoe
     layer identifies a province only by a numeric code, and nothing else in
     the project maps those codes to names.
     """
-    enc = sidecar_encoding(path, "tis-620")
     out = {}
-    for rec in shapefile.Reader(path, encoding=enc).records():
+    for rec in layer.reader.records():
         out[str(rec["PROV_CODE"]).strip()] = (clean_en(rec["PROV_NAME"]),
                                               clean_th(rec["PROV_NAMT"]))
     return out
 
 
-def build_districts(path, names_by_code):
+def build_districts(layer, names_by_code):
     """Every amphoe in Thailand, one feature each.
 
     Grouped by AMP_CODE first: 37 amphoe are split across several records in
@@ -204,8 +253,7 @@ def build_districts(path, names_by_code):
     those would otherwise be dropped, taking their province's outline with
     them.
     """
-    crs, enc = sidecar_crs(path), sidecar_encoding(path, "utf-8")
-    reader = shapefile.Reader(path, encoding=enc)
+    crs, reader = layer.crs, layer.reader
 
     groups = defaultdict(list)
     labels = {}
@@ -244,10 +292,9 @@ def build_districts(path, names_by_code):
     return {"type": "FeatureCollection", "features": features}
 
 
-def build_provinces(path):
+def build_provinces(layer):
     """All 77 provinces, straight from the province shapefile."""
-    crs, enc = sidecar_crs(path), sidecar_encoding(path, "tis-620")
-    reader = shapefile.Reader(path, encoding=enc)
+    crs, reader = layer.crs, layer.reader
     features = []
     for rec, shp in zip(reader.records(), reader.shapes()):
         name_en = clean_en(rec["PROV_NAME"])
@@ -275,19 +322,22 @@ def write(path, collection):
 
 
 def main() -> int:
-    province_shp = find_one(PROVINCE_GLOB)
-    district_shp = find_one(DISTRICT_GLOB)
-    for label, path in (("province", province_shp), ("amphoe", district_shp)):
-        if path is None:
-            print(f"No {label} shapefile found under this folder.")
+    layers = {}
+    for label, pattern, enc in (("province", PROVINCE_GLOB, "tis-620"),
+                                ("amphoe", DISTRICT_GLOB, "utf-8")):
+        zip_path = find_zip(pattern)
+        if zip_path is None:
+            print(f"No {label} archive matching {pattern!r} in this folder.")
             return 1
-        print(f"{label:9} <- {path}  [{sidecar_crs(path)}, {sidecar_encoding(path)}]")
+        layers[label] = ZippedShapefile(zip_path, default_encoding=enc)
+        print(f"{label:9} <- {zip_path} :: {layers[label].member}  "
+              f"[{layers[label].crs}, {layers[label].encoding}]")
 
     print(f"\nProvinces (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
-    write(PROVINCES_OUT, build_provinces(province_shp))
+    write(PROVINCES_OUT, build_provinces(layers["province"]))
     print(f"Districts (all of Thailand, {FOCUS_PROVINCE.title()} kept finer) ...")
-    write(DISTRICTS_OUT, build_districts(district_shp, province_names(province_shp)))
-    print("Commit both .geojson files; the shapefiles stay gitignored.")
+    write(DISTRICTS_OUT, build_districts(layers["amphoe"], province_names(layers["province"])))
+    print("Commit both .geojson files; the archives stay gitignored.")
     return 0
 
 

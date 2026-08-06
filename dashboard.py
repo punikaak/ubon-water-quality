@@ -47,6 +47,18 @@ RANGE_END = dt.date(2024, 12, 31)
 
 # Actual on-map symbol colors, reused so the legend and the layer-toggle
 # panel never drift out of sync with what's really drawn on the map.
+PROVINCE_LINE_COLOR = "#9aa3ad"
+# The highlight around Ubon itself, drawn heavier than the other provinces'
+# outlines. Black rather than a hue: the turbidity overlay it encloses is
+# itself a colour scale, so a coloured boundary competed with the data for
+# attention and, at the orange end of that scale, blended into it.
+PROVINCE_FOCUS_COLOR = "#000000"
+# Lighter and thinner than the province line above it, not darker. The
+# district layer is every amphoe in Thailand - 930 of them - and it used to be
+# the darker of the two, dashed: at country zoom that reads as a grey haze
+# with the province borders lost inside it. Subdividing lines should sit
+# under the lines they subdivide.
+DISTRICT_LINE_COLOR = "#c2c8d0"
 STATION_STROKE_COLOR = "#2b2b3a"
 HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
 
@@ -97,10 +109,14 @@ TRANSLATIONS = {
         "no_coverage": "No composite coverage at this station's location.",
         "legend_layers": "Layers",
         "legend_turbidity_levels": "Turbidity Levels",
+        "legend_province": "Province boundary",
+        "legend_district": "District boundary",
         "legend_pcd_stations": "PCD stations",
         "legend_caption": "General reference scale for this dashboard, not an official Thai PCD standard.",
         "legend_label": "Legend",
         "pcd_stations_label": "PCD Stations",
+        "province_label": "Province",
+        "district_label": "District",
         "turbidity_label": "Turbidity",
         "basemap_label": "Base Map",
         "pcd_dept": "PCD - Thailand Pollution Control Department",
@@ -207,10 +223,14 @@ TRANSLATIONS = {
         "no_coverage": "ไม่มีข้อมูลดาวเทียมครอบคลุมตำแหน่งสถานีนี้",
         "legend_layers": "ชั้นข้อมูล",
         "legend_turbidity_levels": "ระดับความขุ่น",
+        "legend_province": "ขอบเขตจังหวัด",
+        "legend_district": "ขอบเขตอำเภอ",
         "legend_pcd_stations": "สถานีคุณภาพน้ำ",
         "legend_caption": "ค่าอ้างอิงทั่วไปสำหรับแดชบอร์ดนี้ ไม่ใช่มาตรฐานทางการของกรมควบคุมมลพิษ",
         "legend_label": "คำอธิบาย",
         "pcd_stations_label": "สถานีคุณภาพน้ำ",
+        "province_label": "จังหวัด",
+        "district_label": "อำเภอ",
         "turbidity_label": "ความขุ่น",
         "basemap_label": "แผนที่ฐาน",
         "pcd_dept": "คพ. - กรมควบคุมมลพิษ",
@@ -809,10 +829,9 @@ def turbidity_overlay_rgba(turbidity_map, water_mask):
 
 
 def build_legend_html():
-    # Province and district rows used to sit above this one. They went with
-    # the layers themselves - a legend entry for a line the map never draws
-    # is worse than no entry at all.
     layer_rows = (
+        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{PROVINCE_LINE_COLOR}"></span>{T["legend_province"]}</div>'
+        f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{DISTRICT_LINE_COLOR};height:2px"></span>{T["legend_district"]}</div>'
         f'<div class="wq-legend-item"><span class="wq-legend-circle" style="border:2px solid {STATION_STROKE_COLOR}"></span>{T["legend_pcd_stations"]}</div>'
     )
     turbidity_rows = []
@@ -947,6 +966,24 @@ def province_history():
         if mask.any():
             rows.append({"Date": pd.Timestamp(d), "NTU": float(turb_map[mask].mean())})
     return pd.DataFrame(rows)
+
+
+def load_provinces_for_display():
+    """Thailand province outlines, as cached from Province Shapefile.zip.
+
+    This used to re-simplify every province to ~2km before handing them to
+    Leaflet, to keep down what streamlit-folium reserialises on each rerun.
+    That step is gone: it was destroying the detail it was meant to be
+    cheaply approximating. On Ubon it moved the outline by up to 2.2km,
+    nearly as far as the entirely different OpenStreetMap boundary sat from
+    it (3.4km) - so switching to the local shapefile made no visible
+    difference at all until this was removed.
+
+    The cache is written at a tolerance chosen for what is actually drawn -
+    fine for Ubon, proportional to each province's own size elsewhere (see
+    import_shapefiles) - so there is nothing left here to do.
+    """
+    return geo.load_thailand_provinces()
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
@@ -1170,15 +1207,63 @@ stations_def = {
     "title": T["pcd_dept"],
 }
 
-# No administrative boundaries are drawn on the map - no provinces, no
-# districts, and no outline around Ubon itself. The basemap carries its own
-# faint borders; what this app adds on top is the turbidity overlay and the
-# station markers, and nothing else.
-#
-# The two boundary files are still read, just not drawn: geo.load_province()
-# supplies the bounds the map first fits to, and geo.load_districts() feeds
-# the sidebar's per-district turbidity ranking. Both are computation, not
-# cartography.
+# Boundary hover labels follow the interface language. The shapefiles these
+# come from carry both names (see import_shapefiles.py); the previous Earth
+# Engine source had English only, which is why these were English-only before.
+PROVINCE_NAME_FIELD = "ADM1_NAME_TH" if LANG == "th" else "ADM1_NAME"
+DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
+
+# --- All Thailand provinces, Ubon Ratchathani highlighted ---
+province_def = None
+try:
+    provinces_geojson = load_provinces_for_display()
+
+    def province_style(feature):
+        is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
+        return {
+            "color": PROVINCE_FOCUS_COLOR if is_focus else PROVINCE_LINE_COLOR,
+            # 1.4 rather than 1 for the others: with the district layer on,
+            # a province line the same width as its own subdivisions stops
+            # reading as the higher level.
+            "weight": 3 if is_focus else 1.4,
+            # fill:False (not just fillOpacity:0) - otherwise the invisible
+            # fill still counts as "painted" for hit-testing and the whole
+            # province polygon (which covers every station) swallows clicks
+            # meant for the markers underneath it.
+            "fill": False,
+            "fillOpacity": 0,
+        }
+
+    province_layer = folium.GeoJson(
+        provinces_geojson, name="Provinces", style_function=province_style,
+        tooltip=folium.GeoJsonTooltip(fields=[PROVINCE_NAME_FIELD], aliases=[""]),
+        show=True,
+    )
+    province_layer.add_to(fmap)
+    province_def = {"key": "province", "label": T["province_label"], "layer": province_layer, "default_on": True}
+except FileNotFoundError as e:
+    st.info(str(e))
+
+# --- Districts, country-wide. On by default: it is now a full national layer
+# rather than the secondary detail it was when it held one province, and
+# leaving it switched off meant a visitor never saw it without hunting through
+# the rail for a toggle. ---
+district_def = None
+try:
+    districts_geojson = geo.load_districts()
+    district_layer = folium.GeoJson(
+        districts_geojson, name="Districts",
+        # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
+        # shows more than a province or two.
+        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
+                                   "fill": False, "fillOpacity": 0},
+        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
+        show=True,
+    )
+    district_layer.add_to(fmap)
+    district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
+except FileNotFoundError:
+    pass
 
 overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
 turbidity_layer = folium.raster_layers.ImageOverlay(
@@ -1191,7 +1276,7 @@ turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": tur
 
 station_layer.add_to(fmap)
 
-overlay_defs = [d for d in [stations_def, turbidity_def] if d is not None]
+overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def] if d is not None]
 map_controls.add_layer_rail(
     fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
