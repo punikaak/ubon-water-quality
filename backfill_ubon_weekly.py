@@ -10,9 +10,9 @@ polls and downloads each as it finishes.
 
 Run manually:  python backfill_ubon_weekly.py
 
-Needs core.STUDY_AREA set first - see refresh_ubon_data.py. The FAO/GAUL
-province boundary this used to build its own footprint from was removed
-deliberately.
+Exports the same footprint as the weekly refresh, core.STUDY_AREA_BOUNDS. The
+FAO/GAUL province boundary this used to build its own footprint from was
+removed deliberately.
 """
 import datetime as dt
 import io
@@ -40,8 +40,8 @@ def week_windows(start, end, step_days):
 
 def submit_all():
     core.init_ee()
-    # Same footprint as the weekly refresh - set core.STUDY_AREA, which
-    # replaced the FAO/GAUL province filter this used to build itself.
+    # Same footprint as the weekly refresh, which replaced the FAO/GAUL
+    # province filter this used to build for itself.
     ubon = core.study_area()
 
     tasks = []

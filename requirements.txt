@@ -39,3 +39,7 @@ shapely>=2.0
 requests>=2.31
 google-auth>=2.30
 google-api-python-client>=2.140
+
+# Morphological cleanup of the water mask (province_composite.mend_water_mask).
+# Arrived transitively via scikit-learn before anything imported it directly.
+scipy>=1.10

@@ -9,9 +9,9 @@ Run manually:  python refresh_ubon_data.py
 Meant to be re-run on a schedule (e.g. every 7 days) to keep the dashboard's
 area-wide turbidity layer current.
 
-Before the first run you must set STUDY_AREA below. It used to be derived from
-FAO/GAUL province boundaries, which were removed from this project on purpose,
-so the export footprint has to be supplied.
+The export footprint is STUDY_AREA_BOUNDS below - Ubon's bounding box taken
+from Province Shapefile.zip. It used to be derived from FAO/GAUL province
+boundaries, which were removed from this project on purpose.
 """
 import datetime as dt
 import io
@@ -50,27 +50,39 @@ LATEST_POINTER = "ubon_latest_composite.txt"
 
 # The footprint to composite, clip and export. This used to be FAO/GAUL/2015
 # level 1 filtered to Ubon Ratchathani; that dependency on Earth Engine's
-# boundary dataset was removed deliberately. Note that the province geometry
-# the dashboard draws is NOT reused here - these scripts run offline against
-# Earth Engine and take no dependency on the app's caches. Set it before
-# running:
+# boundary dataset was removed deliberately, and this replaced it.
 #
-#     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+# The numbers are the bounding box of Ubon Ratchathani as it appears in
+# Province Shapefile.zip - this project's own boundary source - to full
+# precision. They are written out rather than read from the GeoJSON cache
+# because these scripts run offline against Earth Engine and take no
+# dependency on the app's data; the cache is also simplified, which a footprint
+# should not be.
 #
-# Left unset rather than defaulted to some rectangle. A wrong footprint does
-# not fail - it exports real imagery of the wrong ground, and the dashboard
-# would render it without complaint.
-STUDY_AREA = None
+# A rectangle rather than the outline: this only decides what gets exported,
+# and a box costs a little extra imagery outside the province while being
+# impossible to get subtly wrong. Replace it with an ee.Geometry.Polygon if
+# you want the exports clipped to the province exactly.
+STUDY_AREA_BOUNDS = (
+    104.37281039238762, 14.209436785232628,   # min lon, min lat
+    105.63696456003092, 16.098004466447623,   # max lon, max lat
+)
 
 
 def study_area():
-    """The export footprint, or a clear failure if none has been set."""
-    if STUDY_AREA is None:
+    """The export footprint, as an ee.Geometry.
+
+    Built on call rather than at import. Constructing an ee.Geometry needs
+    Earth Engine initialised, and importing this module must not require that -
+    backfill_ubon_weekly imports it for its constants and pipeline functions
+    before it authenticates.
+    """
+    if STUDY_AREA_BOUNDS is None:
         raise RuntimeError(
-            "STUDY_AREA is not set - see the note beside it at the top of "
-            "refresh_ubon_data.py, and set it to the ee.Geometry you want exported."
+            "STUDY_AREA_BOUNDS is not set - see the note beside it at the top of "
+            "refresh_ubon_data.py, and set it to the box you want exported."
         )
-    return STUDY_AREA
+    return ee.Geometry.Rectangle(list(STUDY_AREA_BOUNDS))
 
 
 def init_ee():

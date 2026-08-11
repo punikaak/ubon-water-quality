@@ -54,6 +54,37 @@ DISPLAY_CACHE_DIR = "display_rasters"
 # map had before.
 DISPLAY_RESOLUTION_M = 40
 
+# Mending the water mask, so the overlay reads as the waterway the basemap
+# shows rather than as a broken trail of patches along it.
+#
+# The mask is whatever survived Earth Engine's water test and its cloud/shadow
+# test for that week, and both punch holes in a river that is continuously
+# there: sediment plumes fail the NIR-based water index (see
+# refresh_ubon_data.process_s2), and cloud shadow removes whole reaches.
+#
+# Two steps, and the order matters. Measured on 27 Dec, 105,936 water pixels
+# in 14,360 components - 55% of those components are a single pixel, and all
+# the sub-3-pixel ones together hold under 8% of the water. That is scatter
+# over wet ground, not river. Closing that directly is the obvious move and
+# the wrong one: with speckle left in, the dilate merges neighbouring specks
+# into blobs, costing +65% area for only 26% fewer components.
+#
+# Dropping the specks first and then closing gently gives +1.1% area for 78%
+# fewer components - the river joins up, and almost nothing is invented.
+MIN_WATER_COMPONENT_PX = 3
+# Closing radius in display pixels; at 40m, 3 bridges breaks up to ~240m.
+#
+# A closing - dilate then erode by the same amount - cannot grow an isolated
+# region, since the erode undoes exactly what the dilate added wherever there
+# was nothing to join to. It only fills space already enclosed, or nearly so,
+# by water. Every pixel it adds therefore has water on several sides, which is
+# good evidence the hole is in the mask rather than in the river.
+#
+# It is still inference, not observation: an added pixel takes its turbidity
+# from the nearest measured one. Set either constant to 0 to draw only what
+# was actually measured.
+GAP_FILL_RADIUS_PX = 3
+
 
 def list_available_composites(folder="."):
     """Returns [(date, path), ...] sorted by date. Local files if any exist;
@@ -176,7 +207,47 @@ def load_composite(path, target_res_m=DISPLAY_RESOLUTION_M, strip_rows=500):
             out_row += out_rows
 
     turbidity_map = np.divide(turb_sum, turb_count, out=np.zeros_like(turb_sum), where=turb_count > 0)
-    return turbidity_map.astype(np.float32), mask_down, bounds
+    turbidity_map, mask_down = mend_water_mask(turbidity_map.astype(np.float32), mask_down)
+    return turbidity_map, mask_down, bounds
+
+
+def mend_water_mask(turbidity, mask, min_component_px=MIN_WATER_COMPONENT_PX,
+                    radius=GAP_FILL_RADIUS_PX):
+    """Drop speckle, close breaks, and carry a value into what that adds.
+
+    See MIN_WATER_COMPONENT_PX for why, and why in that order. Returns
+    (turbidity, mask) whatever the settings, so zeroing either constant is a
+    clean no-op rather than a special case for callers.
+
+    An added pixel takes the turbidity of the nearest *measured* one. The
+    distance transform runs over the original mask, not the mended one, so a
+    filled pixel can never source its value from another filled pixel.
+    """
+    if not mask.any():
+        return turbidity, mask
+
+    from scipy import ndimage
+
+    mended = mask
+    if min_component_px > 1:
+        labels, _n = ndimage.label(mended)
+        sizes = np.bincount(labels.ravel())
+        keep = sizes >= min_component_px
+        keep[0] = False  # label 0 is the background
+        mended = keep[labels]
+
+    if radius > 0:
+        y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+        disk = (x * x + y * y) <= radius * radius
+        mended = ndimage.binary_closing(mended, structure=disk)
+
+    added = mended & ~mask
+    if added.any():
+        # Indices of the nearest True in `mask`, for every pixel.
+        _dist, (src_y, src_x) = ndimage.distance_transform_edt(~mask, return_indices=True)
+        turbidity = turbidity.copy()
+        turbidity[added] = turbidity[src_y[added], src_x[added]]
+    return turbidity, mended
 
 
 # This used to also build and return a stretched RGB composite, from the B4/B3/B2

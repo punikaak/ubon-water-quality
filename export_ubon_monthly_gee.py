@@ -14,9 +14,9 @@ keeps the ORIGINAL definition. The JS script also only computed NDWI + NDSSI;
 the model needs all 8 features (B2,B3,B4,B8,NDWI,MNDWI,NDTI,NDSSI), so B11 and
 the missing indices are added.
 
-Study area: supplied by hand, see STUDY_AREA below. It was FAO/GAUL/2015
-level1 filtered to Ubon Ratchathani; that dependency on Earth Engine's
-boundary dataset was removed deliberately.
+Study area: Ubon's bounding box from Province Shapefile.zip, written out below.
+It was FAO/GAUL/2015 level1 filtered to Ubon Ratchathani; that dependency on
+Earth Engine's boundary dataset was removed deliberately.
 
 TWO EXPORT MODES:
   - "rolling" (default): composite of the most recent WINDOW_DAYS days, for a
@@ -50,24 +50,22 @@ except Exception:
 # 1. Study area - MUST BE SET BEFORE RUNNING
 # =========================================================================
 # This was FAO/GAUL/2015 level 1 filtered to Ubon Ratchathani; that dependency
-# on Earth Engine's boundary dataset was removed deliberately, so the footprint
-# has to be supplied here:
+# on Earth Engine's boundary dataset was removed deliberately, and these
+# numbers replaced it - the bounding box of Ubon Ratchathani as it appears in
+# Province Shapefile.zip, this project's own boundary source, to full
+# precision. Kept in step with refresh_ubon_data.STUDY_AREA_BOUNDS.
 #
-#     STUDY_AREA = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+# The simplified GeoJSON the dashboard draws is not reused: it is a rendering
+# cache, and this script runs offline against Earth Engine with no dependency
+# on the app's data.
 #
-# The province geometry the dashboard draws is not reused for this - that is a
-# simplified rendering cache, and this script runs offline against Earth Engine
-# with no dependency on the app's data.
-#
-# Left unset rather than defaulted to some rectangle. A wrong footprint does
-# not fail - it exports real imagery of the wrong ground.
-STUDY_AREA = None
-
-if STUDY_AREA is None:
-    raise SystemExit(
-        "STUDY_AREA is not set - set it above to the ee.Geometry you want exported."
-    )
-ubon = STUDY_AREA
+# A rectangle rather than the outline - this only decides what gets exported,
+# so a box costs a little imagery outside the province while being impossible
+# to get subtly wrong.
+ubon = ee.Geometry.Rectangle([
+    104.37281039238762, 14.209436785232628,   # min lon, min lat
+    105.63696456003092, 16.098004466447623,   # max lon, max lat
+])
 
 # =========================================================================
 # 2. Cloud/shadow masking (SCL) + water-only masking (NDWI or MNDWI), all 8
