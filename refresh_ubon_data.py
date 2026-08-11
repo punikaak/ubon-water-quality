@@ -97,10 +97,30 @@ def process_s2(image):
     mask_out = scl.neq(3).And(scl.neq(8)).And(scl.neq(9)).And(scl.neq(10))
     img_clean = image.updateMask(mask_out).divide(10000)
     ndwi = img_clean.normalizedDifference(["B3", "B8"]).rename("NDWI")
-    water_mask = ndwi.gt(0)
     mndwi = img_clean.normalizedDifference(["B3", "B11"]).rename("MNDWI")
     ndti = img_clean.normalizedDifference(["B4", "B3"]).rename("NDTI")
     ndssi = img_clean.normalizedDifference(["B8", "B4"]).rename("NDSSI")  # matches trained model
+
+    # Water is NDWI>0 OR MNDWI>0, where it used to be NDWI alone.
+    #
+    # NDWI = (B3-B8)/(B3+B8) is built on NIR, which suspended sediment
+    # reflects strongly. So the muddier the water, the lower its NDWI, and the
+    # likelier this test discards it - backwards for a map whose whole subject
+    # is turbidity, and it shows as gaps along the river.
+    #
+    # Measured on Ubon_S2_20241227, itself exported under the NDWI-only rule:
+    # the minimum NDWI among the water it kept is 0.000, so the threshold is
+    # cutting through live data rather than empty space, and the lowest NDWI
+    # decile averages 39.6 NTU against 36.2 for the rest - the pixels nearest
+    # the cut really are the turbid ones.
+    #
+    # MNDWI = (B3-B11)/(B3+B11) substitutes SWIR, where even heavily laden
+    # water stays dark (Xu 2006). On that same composite MNDWI exceeds NDWI on
+    # 64% of kept pixels, so it is the more permissive test for most water -
+    # but 10% of kept pixels have MNDWI<=0, so it is not a superset either.
+    # Hence OR, rather than replacing one index with the other.
+    water_mask = ndwi.gt(0).Or(mndwi.gt(0))
+
     bands = img_clean.select(["B2", "B3", "B4", "B8"]).addBands([ndwi, mndwi, ndti, ndssi])
     return bands.updateMask(water_mask).copyProperties(image, ["system:time_start"])
 

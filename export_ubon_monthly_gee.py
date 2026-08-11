@@ -70,8 +70,8 @@ if STUDY_AREA is None:
 ubon = STUDY_AREA
 
 # =========================================================================
-# 2. Cloud/shadow masking (SCL) + water-only masking (NDWI), all 8 model
-#    features computed with THIS project's existing definitions.
+# 2. Cloud/shadow masking (SCL) + water-only masking (NDWI or MNDWI), all 8
+#    model features computed with THIS project's existing definitions.
 # =========================================================================
 def process_s2(image):
     scl = image.select("SCL")
@@ -80,9 +80,14 @@ def process_s2(image):
     img_clean = image.updateMask(mask_out).divide(10000)
 
     ndwi = img_clean.normalizedDifference(["B3", "B8"]).rename("NDWI")
-    water_mask = ndwi.gt(0)
-
     mndwi = img_clean.normalizedDifference(["B3", "B11"]).rename("MNDWI")
+
+    # NDWI>0 OR MNDWI>0 - see the long note in refresh_ubon_data.process_s2.
+    # NDWI is built on NIR, which sediment reflects, so on its own it discards
+    # the most turbid water; MNDWI uses SWIR and keeps it. Neither is a
+    # superset of the other, so both are tested.
+    water_mask = ndwi.gt(0).Or(mndwi.gt(0))
+
     ndti = img_clean.normalizedDifference(["B4", "B3"]).rename("NDTI")
     # NDSSI kept as (B8-B4)/(B8+B4) to match the already-trained model - see
     # module docstring. (The JS draft used (B2-B8)/(B2+B8) instead.)
