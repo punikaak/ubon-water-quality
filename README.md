@@ -84,8 +84,30 @@ One pass writes both artifacts that keep the GeoTIFFs off the render path:
   re-runs the model over the full-resolution province.
 
 Either way the underlying cost is a ~28MB Drive download plus ~11s of
-inference per composite. Precomputed, a date costs a ~80KB file read and
-~20ms - only ~1% of the province is water, so the arrays compress hard.
+inference per composite. Precomputed, a date costs a file read of a few
+hundred KB and ~20ms - only ~1% of the province is water, so the arrays
+compress hard.
+
+The grid those rasters are written on is set by
+`province_composite.DISPLAY_RESOLUTION_M`, in **metres of ground, not pixels**.
+It is 40m. It used to be a pixel budget (1400 on the long side) which, against
+~20m composites, quietly downsampled them 8x and drew the map at 155m - the
+Mun River, 200-400m wide, was one to three pixels across. Raising the GEE
+export scale would not have helped, because a finer source only made the
+downsample factor larger; expressing the target as a distance decouples the
+two ends.
+
+40m rather than finer because the province is drawn as one PNG overlay, so
+cost follows the whole grid, not the 1% of it that is water:
+
+| grid | on disk, per date | in the map payload | peak to colour |
+|---|---|---|---|
+| 155m (old) | ~0.1MB | ~65KB | ~30MB |
+| **40m** | **2-4MB** | **~370-470KB** | **~118MB** |
+| 20m | 1.3-4.2MB | ~1.2MB | ~850MB |
+
+20m is the archive's own resolution and it renders, but colouring a 73Mpx grid
+transiently needs more memory than a Streamlit Community Cloud container has.
 
 Skipping this step is not fatal: any date missing from either artifact is
 still computed live, it just costs what it used to for that date.

@@ -74,7 +74,7 @@ def main() -> int:
         iso = date.isoformat()
         print(f"  [{i}/{len(composites)}] {iso} ...", end="", flush=True)
         local = pc.ensure_local(path)
-        _rgb, turb, mask, bounds = pc.load_composite(local)
+        turb, mask, bounds = pc.load_composite(local)
         # Same pass also writes the map's display raster - see
         # province_composite.load_display() for why the dashboard reads that
         # instead of the GeoTIFF.

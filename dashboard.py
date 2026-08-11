@@ -798,13 +798,35 @@ def load_validation():
     return df, y, y_pred, r2, rmse
 
 
-def turbidity_overlay_rgba(turbidity_map, water_mask):
+def turbidity_overlay_rgba(turbidity_map, water_mask, band_rows=512):
+    """The map's turbidity image, as uint8 RGBA.
+
+    Two things here exist only to keep the peak allocation bounded, because
+    this runs on every rerun and the raster is the whole province.
+
+    bytes=True: matplotlib's colormaps return float64, 32 bytes per pixel. At
+    the display grid that was a 587MB array, and at finer grids it simply
+    fails to allocate. The image is quantised to 8 bits per channel on its way
+    to PNG regardless, so building the float version discards nothing - it
+    just costs eight times the memory to reach the same picture.
+
+    Banding: even in uint8 the intermediate BoundaryNorm index is int64, twice
+    the size of the output image. Colouring in horizontal bands keeps that
+    intermediate to one band's worth, so the peak is the output array plus a
+    slice rather than the whole grid several times over.
+    """
     breakpoints = [c["max"] for c in style.CLASSES[:-1]]
     colors = [c["color"] for c in style.CLASSES]
     cmap = mcolors.ListedColormap(colors)
     norm = mcolors.BoundaryNorm([0] + breakpoints + [breakpoints[-1] * 3], cmap.N)
-    rgba = cmap(norm(turbidity_map))
-    rgba[..., 3] = np.where(water_mask, 0.85, 0.0)
+
+    h, w = turbidity_map.shape
+    rgba = np.empty((h, w, 4), dtype=np.uint8)
+    for y0 in range(0, h, band_rows):
+        y1 = min(y0 + band_rows, h)
+        band = cmap(norm(turbidity_map[y0:y1]), bytes=True)
+        band[..., 3] = np.where(water_mask[y0:y1], 217, 0)  # 217/255 = the old 0.85
+        rgba[y0:y1] = band
     return rgba
 
 
@@ -1037,14 +1059,25 @@ def district_ntu(path: str):
     names = [f["properties"]["ADM2_NAME"] for f in features]
     zones = rasterio.features.rasterize(
         [(f["geometry"], i + 1) for i, f in enumerate(features)],
-        out_shape=(h, w), transform=transform, fill=0, dtype="int32",
+        out_shape=(h, w), transform=transform, fill=0,
+        # uint8, not int32: 25 labels fit in a byte, and the display raster is
+        # 73M pixels, where the wider dtype costs 294MB for the label grid
+        # alone.
+        dtype="uint8",
     )
 
-    rows = []
-    for i, name in enumerate(names, start=1):
-        sel = (zones == i) & mask
-        if sel.any():
-            rows.append({"District": name, "NTU": float(turb[sel].mean())})
+    # Summed per label across water pixels in one pass, rather than a boolean
+    # test per district. The old loop built "(zones == i) & mask" 25 times,
+    # each allocating two more full-grid arrays; together with the int32 grid
+    # that peaked at 514MB, over the limit a cloud container gets. This walks
+    # ~1M water pixels instead of 25 x 73M, and gives identical means.
+    labels = zones[mask]
+    values = turb[mask]
+    sums = np.bincount(labels, weights=values, minlength=len(names) + 1)
+    counts = np.bincount(labels, minlength=len(names) + 1)
+
+    rows = [{"District": name, "NTU": float(sums[i] / counts[i])}
+            for i, name in enumerate(names, start=1) if counts[i]]
     return pd.DataFrame(rows).sort_values("NTU", ascending=False).reset_index(drop=True)
 
 

@@ -29,7 +29,21 @@ PROJECT = "gee-training-498303"
 DRIVE_FOLDER_NAME = "GEE_Ubon_Turbidity"
 LOCAL_OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 FEATURES = ["B2", "B3", "B4", "B8", "NDWI", "MNDWI", "NDTI", "NDSSI"]
-EXPORT_SCALE = 20  # meters; full 10m province-wide export is very large (see refresh notes)
+# Export resolution in metres. 10 is Sentinel-2's native pixel for the four
+# bands that carry the turbidity signal - B2, B3, B4, B8 - and those are four
+# of the model's eight features, plus the two indices built only from them
+# (NDTI from B4/B3, NDSSI from B8/B4) and NDWI from B3/B8. So at 10m seven of
+# the eight are genuinely at native resolution.
+#
+# The exception is MNDWI, which needs B11 (SWIR), and the SCL cloud mask.
+# Both are natively 20m, so Earth Engine resamples them up. That adds no
+# information, but it costs nothing either and it does not degrade the seven.
+#
+# The cost is real: 4x the pixels, so composites go from ~20-40MB to ~80-170MB
+# each and the export takes correspondingly longer. What the map draws is not
+# affected - see province_composite.DISPLAY_RESOLUTION_M, which is set in
+# metres precisely so that this can change without moving the display grid.
+EXPORT_SCALE = 10
 WINDOW_DAYS = 7
 MAX_LOOKBACK_DAYS = 35
 LATEST_POINTER = "ubon_latest_composite.txt"

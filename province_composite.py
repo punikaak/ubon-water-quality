@@ -25,6 +25,35 @@ FILENAME_RE = re.compile(r"Ubon_S2_(\d{8})\.tif$")
 CACHE_DIR = ".composite_cache"
 DISPLAY_CACHE_DIR = "display_rasters"
 
+# Ground resolution the map's turbidity raster is drawn at, in metres.
+#
+# A distance rather than a pixel budget, which is what this used to be
+# (max_dim=1400 on the long side). That was wrong in a way that hid itself:
+# the composites are ~20m, 6986x10505, so a 1400px cap downsampled them 8x and
+# the map drew 155m pixels - the Mun River, 200-400m wide, was one to three
+# pixels across. Raising the GEE export scale would not have helped either,
+# since a finer source only made the factor larger.
+#
+# Derived from each file's own pixel size, so the two ends stay independent:
+# change EXPORT_SCALE in refresh_ubon_data.py and the display grid, and what
+# it costs to ship, stay put.
+#
+# Why 40 and not finer. The whole province is drawn as ONE PNG overlay, so the
+# cost is set by the full grid, not by the ~1% of it that is water. Measured
+# per composite, on the wettest date:
+#
+#     155m (old)   0.9 Mpx    0.1MB on disk    65KB in the payload
+#      40m         18 Mpx     2-4MB            ~300KB
+#      20m         73 Mpx     1.3-4.2MB        ~1.2MB
+#
+# 20m works but is not safe: colouring a 73 Mpx grid transiently needs ~850MB
+# (the BoundaryNorm index alone is 560MB of int64), which overruns the 1GB a
+# Streamlit Community Cloud container gets. 40m needs ~220MB. Since the
+# archive is ~20m anyway, 40m also means each display pixel averages a 2x2
+# block rather than resampling one - slightly less noisy, at 4x the detail the
+# map had before.
+DISPLAY_RESOLUTION_M = 40
+
 
 def list_available_composites(folder="."):
     """Returns [(date, path), ...] sorted by date. Local files if any exist;
@@ -74,30 +103,43 @@ def ensure_local(path: str) -> str:
     return drive_client.download_file(file_id, filename, CACHE_DIR)
 
 
-def load_composite(path, max_dim=1400, strip_rows=500):
-    """Returns (rgb, turbidity_map, valid_mask, bounds), already downsampled to
-    at most `max_dim` on the long side.
+def source_resolution_m(src) -> float:
+    """One source pixel, in metres of ground.
+
+    Read from the file rather than assumed: these are written in EPSG:4326, so
+    the pixel size on disk is in degrees and depends on the scale the GEE
+    export used. Latitude is used because a degree of it is very nearly
+    constant, where a degree of longitude is not.
+    """
+    if src.crs and src.crs.is_geographic:
+        return abs(src.transform.e) * 110_540
+    return abs(src.transform.e)
+
+
+def downsample_factor(src, target_res_m=DISPLAY_RESOLUTION_M) -> int:
+    """How many source pixels go into one display pixel - see DISPLAY_RESOLUTION_M."""
+    return max(1, int(round(target_res_m / source_resolution_m(src))))
+
+
+def load_composite(path, target_res_m=DISPLAY_RESOLUTION_M, strip_rows=500):
+    """Returns (turbidity_map, valid_mask, bounds) at ~`target_res_m` per pixel.
 
     Reads and predicts the file in horizontal row-strips instead of loading
     the whole province (70M+ pixels x 8 bands) into memory at once, which
     reliably exhausts memory in a long-running server process even though
-    the file itself is only ~20MB on disk. Each strip is downsampled (mean
-    for color, "any water in block" for the mask, masked-mean for turbidity)
-    immediately after prediction, so peak memory stays at one strip's worth.
+    the file itself is only ~20MB on disk. Each strip is downsampled ("any
+    water in block" for the mask, masked-mean for turbidity) immediately
+    after prediction, so peak memory stays at one strip's worth.
     """
     with rasterio.open(path) as src:
         h, w = src.height, src.width
         bounds = src.bounds
-        b4_idx = tm.FEATURES.index("B4")
-        b3_idx = tm.FEATURES.index("B3")
-        b2_idx = tm.FEATURES.index("B2")
 
-        factor = max(1, int(np.ceil(max(h, w) / max_dim)))
+        factor = downsample_factor(src, target_res_m)
         strip_rows = max(factor, (strip_rows // factor) * factor)  # keep divisible by factor
 
         out_h = h // factor
         out_w = w // factor
-        rgb_raw = np.zeros((out_h, out_w, 3), dtype=np.float32)
         turb_sum = np.zeros((out_h, out_w), dtype=np.float64)
         turb_count = np.zeros((out_h, out_w), dtype=np.int32)
         mask_down = np.zeros((out_h, out_w), dtype=bool)
@@ -121,12 +163,8 @@ def load_composite(path, max_dim=1400, strip_rows=500):
 
             out_rows = rows // factor
             usable_w = out_w * factor
-            rgb_strip = np.dstack([strip[b4_idx], strip[b3_idx], strip[b2_idx]])[:, :usable_w]
             turb_strip = turb_strip[:, :usable_w]
             valid_strip = valid_strip[:, :usable_w]
-
-            rgb_blocks = rgb_strip.reshape(out_rows, factor, out_w, factor, 3)
-            rgb_raw[out_row:out_row + out_rows] = np.nan_to_num(rgb_blocks, nan=0.0).mean(axis=(1, 3))
 
             mask_blocks = valid_strip.reshape(out_rows, factor, out_w, factor)
             mask_down[out_row:out_row + out_rows] = mask_blocks.any(axis=(1, 3))
@@ -138,16 +176,14 @@ def load_composite(path, max_dim=1400, strip_rows=500):
             out_row += out_rows
 
     turbidity_map = np.divide(turb_sum, turb_count, out=np.zeros_like(turb_sum), where=turb_count > 0)
+    return turbidity_map.astype(np.float32), mask_down, bounds
 
-    def stretch(b, low=2, high=98):
-        valid = b[mask_down]
-        if valid.size == 0:
-            return np.zeros_like(b)
-        lo, hi = np.percentile(valid, [low, high])
-        return np.clip((b - lo) / (hi - lo + 1e-9), 0, 1)
 
-    rgb = np.dstack([stretch(rgb_raw[..., 0]), stretch(rgb_raw[..., 1]), stretch(rgb_raw[..., 2])])
-    return rgb, turbidity_map.astype(np.float32), mask_down, bounds
+# This used to also build and return a stretched RGB composite, from the B4/B3/B2
+# bands, alongside the turbidity. Nothing ever drew it: both callers unpacked it
+# into a discard. It was harmless at the old 155m grid and is not at 20m, where
+# the array it allocates is 880MB - enough on its own to put a precompute or a
+# cold cloud render over the memory limit, for a picture no one looks at.
 
 
 # ------------------------------------------------------- display rasters ---
@@ -195,16 +231,14 @@ def load_display(path: str):
 
     Reads the precomputed raster when one exists and otherwise falls back to
     load_composite(), so a composite added since the last precompute run is
-    still correct, just as slow as it used to be. Deliberately drops the RGB
-    channels load_composite() also returns: no caller uses them.
+    still correct, just as slow as it used to be.
     """
     cached = display_cache_path(path)
     if cached and os.path.exists(cached):
         with np.load(cached) as z:
             left, bottom, right, top = z["bounds"]
             return z["turbidity"], z["mask"], rasterio.coords.BoundingBox(left, bottom, right, top)
-    _rgb, turbidity, mask, bounds = load_composite(ensure_local(path))
-    return turbidity, mask, bounds
+    return load_composite(ensure_local(path))
 
 
 def sample_at(turbidity_map, valid_mask, bounds, lat, lon, search_radius=5):
