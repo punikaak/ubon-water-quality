@@ -40,6 +40,7 @@ STATION_LOCATIONS_CACHE = "station_locations.json"
 
 THAILAND_PROVINCES_CACHE = "thailand_provinces.geojson"
 DISTRICTS_CACHE = "thailand_districts.geojson"
+WATER_CACHE = "thailand_water.geojson"
 ROADS_CACHE = "ubon_roads.json"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 UBON_RELATION_ID = 1908830  # OSM relation id, used only to scope the road query
@@ -123,6 +124,7 @@ def _require_cache(path, hint, label):
 
 
 _SHAPEFILE_HINT = "Run: python import_shapefiles.py (needs the two local shapefile .zip archives)."
+_WATER_HINT = "Run: python import_water.py (needs the local Stream .zip archive)."
 
 
 @functools.lru_cache(maxsize=1)
@@ -142,6 +144,18 @@ def load_districts() -> dict:
     one province.
     """
     return _require_cache(DISTRICTS_CACHE, _SHAPEFILE_HINT, "district boundaries")
+
+
+@functools.lru_cache(maxsize=1)
+def load_water() -> dict:
+    """Thailand's water areas, from the local Stream.zip archive.
+
+    The archive's layers are named Wetland_<region> and every polygon in them
+    is tagged LU_GROUP="Wetland", so this is wetland cover rather than river
+    channels - see import_water.py, which is the only thing that writes this
+    cache.
+    """
+    return _require_cache(WATER_CACHE, _WATER_HINT, "water layer")
 
 
 @functools.lru_cache(maxsize=8)

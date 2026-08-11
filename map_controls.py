@@ -106,6 +106,19 @@ _OVERLAY_STYLE = {
         '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">'
         '<path d="M12 2C8 8 5 11.8 5 15.2A7 7 0 0 0 12 22a7 7 0 0 0 7-6.8C19 11.8 16 8 12 2Z"/></svg>',
     ),
+    # Stacked waves. A droplet would repeat the turbidity glyph three slots
+    # up; waves read as a body of water, which is what this layer is.
+    "water": (
+        "#1a4e8a",
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M2.5 7.5c1.7 0 1.7 1.5 3.4 1.5s1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5 '
+        '1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5"/>'
+        '<path d="M2.5 12.5c1.7 0 1.7 1.5 3.4 1.5s1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5 '
+        '1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5"/>'
+        '<path d="M2.5 17.5c1.7 0 1.7 1.5 3.4 1.5s1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5 '
+        '1.7-1.5 3.4-1.5 1.7 1.5 3.4 1.5"/></svg>',
+    ),
 }
 _BASEMAP_COLOR = "#c99a5b"
 
@@ -224,6 +237,13 @@ _CSS = """
 .wq-pop-group { margin-top:13px; }
 .wq-pop-group:first-of-type { margin-top:0; }
 .wq-pop-row b { color:#12161c; font-weight:700; }
+/* The level, as a filled pill in its turbidity class colour. Dark text on
+   every class rather than a per-class text colour: the ramp runs from pale
+   blue to dark red, and #12161c is the one foreground that stays legible
+   across all of it. */
+.wq-pop-pill { display:inline-block; padding:2px 10px; border-radius:999px;
+    font-size:0.72rem; font-weight:700; color:#12161c; white-space:nowrap;
+    vertical-align:1px; }
 .wq-pop-note { margin-top:12px; font-size:0.7rem; color:#9aa3ad; line-height:1.4; }
 
 /* ------------------------------------------------- information button ---
@@ -549,6 +569,68 @@ def add_zoom_control(fmap):
     repositioned, so this adds it directly via the Leaflet JS API instead."""
     map_var = fmap.get_name()
     js = f"(function () {{ L.control.zoom({{position: 'bottomleft'}}).addTo({map_var}); }})();"
+    _RawScript(js).add_to(fmap)
+
+
+def declutter_labels(fmap, selector=".wq-dlabel", pad=3):
+    """Hide map text labels that would overlap each other at the current zoom.
+
+    Zoom out and the districts converge on screen while their names stay the
+    same pixel size, so the cluster around Ubon city turns into overlapping
+    text. Leaflet has no built-in collision handling for markers.
+
+    Greedy, in the order the caller ranked them (data-wq-rank ascending, 0
+    kept first): keep a label if its box misses everything kept so far,
+    otherwise hide it. Whatever survives is guaranteed non-overlapping, and
+    because the ranking is stable a label never flickers between two zooms
+    that resolve the same way.
+
+    visibility rather than display: a hidden element keeps its box, so the
+    next pass can measure it without having to show it first and reflow.
+
+    Runs on zoomend, not moveend - all labels are in one projected plane, so
+    panning moves them together and cannot change which ones collide. It also
+    runs on layeradd, because toggling the layer off and on rebuilds the
+    label elements with their inline visibility gone.
+    """
+    map_var = fmap.get_name()
+    js = f"""
+    (function () {{
+        var map = {map_var};
+        var SEL = {json.dumps(selector)}, PAD = {json.dumps(pad)};
+        var pending = null;
+
+        function declutter() {{
+            var el = map.getContainer();
+            var labels = Array.prototype.slice.call(el.querySelectorAll(SEL));
+            if (!labels.length) return;
+            labels.forEach(function (l) {{ l.style.visibility = ''; }});
+            labels.sort(function (a, b) {{
+                return (+a.dataset.wqRank || 0) - (+b.dataset.wqRank || 0);
+            }});
+            var kept = [];
+            labels.forEach(function (l) {{
+                var r = l.getBoundingClientRect();
+                var hit = kept.some(function (k) {{
+                    return r.left - PAD < k.right && r.right + PAD > k.left &&
+                           r.top - PAD < k.bottom && r.bottom + PAD > k.top;
+                }});
+                if (hit) {{ l.style.visibility = 'hidden'; }} else {{ kept.push(r); }}
+            }});
+        }}
+
+        function schedule() {{
+            // Coalesce the burst of layeradd events a rerun fires, and let
+            // Leaflet finish placing markers before anything is measured.
+            if (pending) {{ clearTimeout(pending); }}
+            pending = setTimeout(declutter, 60);
+        }}
+
+        map.on('zoomend', schedule);
+        map.on('layeradd', schedule);
+        map.whenReady(schedule);
+    }})();
+    """
     _RawScript(js).add_to(fmap)
 
 

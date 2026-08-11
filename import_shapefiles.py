@@ -128,11 +128,11 @@ class ZippedShapefile:
     archives cannot share one assumption.
     """
 
-    def __init__(self, zip_path, default_encoding="utf-8"):
+    def __init__(self, zip_path, default_encoding="utf-8", member=None):
         self.zip_path = zip_path
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-            self.member = self._find_member(names)
+            self.member = self._find_member(names, member)
             stem = self.member[:-len(".shp")]
             self.encoding = self._encoding(zf, names, stem, default_encoding)
             self.crs = self._crs(zf, names, stem)
@@ -141,14 +141,27 @@ class ZippedShapefile:
         self.reader = shapefile.Reader(shp=parts[".shp"], shx=parts[".shx"],
                                        dbf=parts[".dbf"], encoding=self.encoding)
 
-    def _find_member(self, names):
+    def _find_member(self, names, member=None):
         """The archive's .shp entry.
 
         Matched on the exact extension, so the QGIS lock files left beside an
         open layer - "...shp.HOSTNAME.1234.sr.lock" - are not mistaken for the
         layer itself.
+
+        `member` names one .shp inside an archive that holds several, matched
+        on the tail of the path so the caller need not know the folder it sits
+        in. Without it the archive must contain exactly one - the boundary
+        zips do, and silently picking one of several would be worse than
+        failing. See import_hydrology.py, whose archive carries three layers.
         """
         hits = sorted(n for n in names if n.lower().endswith(".shp"))
+        if member is not None:
+            wanted = [n for n in hits if n.lower().endswith(member.lower())]
+            if len(wanted) != 1:
+                raise ValueError(
+                    f"{self.zip_path}: {member!r} matched {len(wanted)} of "
+                    f"{len(hits)} shapefiles inside")
+            return wanted[0]
         if len(hits) != 1:
             raise ValueError(f"{self.zip_path}: expected one .shp inside, found {len(hits)}")
         return hits[0]
@@ -161,12 +174,24 @@ class ZippedShapefile:
                 return name
         raise KeyError(f"{stem}{ext} missing from the archive")
 
+    # Codepage names ArcGIS writes into a .cpg that Python has no codec for.
+    # "ANSI 874" is Thai Windows-874; without this the archive cannot be
+    # opened at all - pyshp raises LookupError: unknown encoding: ansi 874.
+    _CODEPAGE_ALIASES = {
+        "ansi 874": "cp874", "ansi874": "cp874", "windows-874": "cp874",
+        "ansi 1252": "cp1252", "ansi1252": "cp1252", "windows-1252": "cp1252",
+    }
+
     def _encoding(self, zf, names, stem, default):
         """The character encoding this shapefile declares for its .dbf.
 
         Read rather than assumed: the province file says TIS-620 in a .cpg,
         the amphoe file says UTF-8 in a .cst, and decoding Thai with the wrong
         one turns every name into mojibake without raising anything.
+
+        Declared names are normalised against _CODEPAGE_ALIASES first, because
+        what a .cpg contains is a codepage label, not necessarily something
+        Python recognises as a codec.
         """
         for ext in (".cpg", ".cst"):
             try:
@@ -174,7 +199,7 @@ class ZippedShapefile:
             except KeyError:
                 continue
             if declared:
-                return declared
+                return self._CODEPAGE_ALIASES.get(declared.lower(), declared)
         return default
 
     def _crs(self, zf, names, stem):

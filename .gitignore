@@ -27,6 +27,8 @@ ubon_water.json
 Province Shapefile/
 Tambon Shapefile/
 Amphoe Shapefile/
+Wetland/
+Stream/
 *.shp
 *.shx
 *.dbf
@@ -35,6 +37,18 @@ Amphoe Shapefile/
 *.cst
 *.qpj
 *.sr.lock
+
+# Raw Overpass response behind thailand_water.geojson (fetch_osm_water.py).
+# 155MB, ~30x the GeoJSON built from it, and carries nothing the GeoJSON
+# doesn't - it exists so the size thresholds can be retuned without asking a
+# donated public service for the hydrography of Thailand again.
+.osm_water_raw.json
+.osm_water_raw.json.part
+
+# The hydrology archive and anything unpacked from it. Same reasoning as the
+# boundary archives above: *.shp and *.zip already catch the layers, this
+# catches the ESRI sidecars (.sbn/.sbx/.shp.xml) that come with them.
+Hydrology/
 
 # Runtime cache for composites downloaded from Drive by the deployed app.
 # Not to be confused with display_rasters/, which IS committed - that one is

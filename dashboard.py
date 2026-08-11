@@ -15,6 +15,7 @@ Run with:  streamlit run dashboard.py
 """
 import base64
 import datetime as dt
+import html
 import json
 
 import altair as alt
@@ -59,6 +60,30 @@ PROVINCE_FOCUS_COLOR = "#000000"
 # with the province borders lost inside it. Subdividing lines should sit
 # under the lines they subdivide.
 DISTRICT_LINE_COLOR = "#c2c8d0"
+
+# Water layer (Thailand's wetland areas - see import_water.py).
+#
+# Navy, and the shade was measured rather than picked. The lowest turbidity
+# class "Excellent" is #A2C0FC - itself a light blue - so a blue water layer
+# risks reading as a turbidity value. What matters is the COMPOSITED colour,
+# not the swatch: a translucent fill blends toward the pale basemap, and royal
+# blue at 45% opacity lands 14.2 dLab from Excellent, which reads as the same
+# colour, despite scoring 46.9 as a swatch.
+#
+# At 75% this composites to #4F77A4: 29.3 dLab from every turbidity class, and
+# 53.2 from the basemap canvas - so it is distinct from the ramp AND plainly
+# visible, rather than distinct by being too faint to see.
+#
+# Opacity this high is safe because the turbidity raster is drawn AFTER this
+# layer and therefore over it; the water can never mask a reading.
+WATER_FILL_COLOR = "#1a4e8a"
+WATER_LINE_COLOR = "#123a68"
+WATER_FILL_OPACITY = 0.75
+
+# Fill for a district with no water pixel on the selected date, in the sidebar
+# choropleth. Deliberately outside the turbidity ramp: any colour from the
+# ramp would state a reading that was never taken.
+DISTRICT_NODATA_COLOR = "#e6e5dd"
 STATION_STROKE_COLOR = "#2b2b3a"
 HEADER_NAVY = "#1e3a5f"  # "si krom tha" - the dark navy used for the floating title card
 
@@ -117,7 +142,6 @@ TRANSLATIONS = {
         "page_subtitle": "Satellite-derived turbidity monitoring - Ubon Ratchathani",
         "situation_overview": "Situation overview - Ubon Ratchathani",
         "latest_turbidity": "Latest Turbidity",
-        "stations_heading": "Stations",
         "station_select": "Station",
         "no_coverage": "No composite coverage at this station's location.",
         "legend_layers": "Layers",
@@ -158,6 +182,10 @@ TRANSLATIONS = {
         "district_ranking": "District Ranking",
         "district_ranking_note": "Mean turbidity of water pixels within each district, highest first.",
         "no_districts": "District boundaries not available.",
+        "no_water_pixels": "no water detected",
+        "district_map_hint": "Hover or tap a district for its reading",
+        "water_label": "Water",
+        "water_source": "Wetland areas - Thai land-use survey",
         "risk": "Risk",
         "window_label": "01 Nov - 31 Dec 2024",
         # --- Information modal. The {…} fields are filled from the model
@@ -216,7 +244,6 @@ TRANSLATIONS = {
         "page_subtitle": "ติดตามความขุ่นของน้ำด้วยดาวเทียม - จังหวัดอุบลราชธานี",
         "situation_overview": "ภาพรวมสถานการณ์ - จังหวัดอุบลราชธานี",
         "latest_turbidity": "ความขุ่นล่าสุด",
-        "stations_heading": "สถานีตรวจวัด",
         "station_select": "สถานี",
         "no_coverage": "ไม่มีข้อมูลดาวเทียมครอบคลุมตำแหน่งสถานีนี้",
         "legend_layers": "ชั้นข้อมูล",
@@ -257,6 +284,10 @@ TRANSLATIONS = {
         "district_ranking": "อันดับความขุ่นรายอำเภอ",
         "district_ranking_note": "ค่าเฉลี่ยความขุ่นของพื้นที่น้ำในแต่ละอำเภอ เรียงจากมากไปน้อย",
         "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
+        "no_water_pixels": "ไม่พบพื้นที่น้ำ",
+        "district_map_hint": "ชี้หรือแตะที่อำเภอเพื่อดูค่า",
+        "water_label": "แหล่งน้ำ",
+        "water_source": "พื้นที่ชุ่มน้ำ - ข้อมูลการใช้ที่ดิน",
         "risk": "ความเสี่ยง",
         "window_label": "1 พ.ย. - 31 ธ.ค. 2567",
         "popup_subdistrict": "ตำบล",
@@ -437,6 +468,26 @@ st.markdown(
 
     .legend-swatch {{ width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }}
 
+    /* Sidebar top. Streamlit reserves a 60px header (a 32px logo spacer plus
+       room for the collapse control) and then pads the content by another
+       16px, putting the first line 76px down an otherwise empty column.
+       Nothing lives in that header here: the collapse button is position:fixed
+       (see stSidebarCollapseButton below), so it has already left the flow and
+       collapsing the header cannot strand it. */
+    [data-testid="stSidebarHeader"] {{ height:0 !important; min-height:0 !important;
+        padding:0 !important; margin:0 !important; }}
+    [data-testid="stLogoSpacer"] {{ display:none !important; }}
+    /* Streamlit pads the sidebar's foot by 96px, which read as a large empty
+       gap under the last section. 18px still clears the bottom edge. */
+    [data-testid="stSidebarUserContent"] {{ padding-top:14px !important;
+        padding-bottom:18px !important; }}
+
+    /* The sidebar's own title. A caption before, which set it in muted 0.75rem
+       and made the panel look like it began with a footnote. */
+    .sb-heading {{ font-size:1.02rem; font-weight:700; color:{P['text']};
+        line-height:1.3; margin:0 0 10px 0; padding-bottom:8px;
+        border-bottom:1px solid {P['border']}; }}
+
     .sb-metric {{ border:1px solid {P['border']}; border-radius:12px; padding:10px 12px; margin-bottom:10px; }}
     .sb-value {{ font-size:1.5rem; font-weight:700; color:{P['text']}; }}
     .sb-label {{ font-size:0.72rem; color:{P['muted']}; text-transform:uppercase; letter-spacing:.04em; }}
@@ -445,18 +496,11 @@ st.markdown(
     .sb-delta {{ font-size:0.78rem; font-weight:600; margin-left:6px; }}
     .sb-sub {{ font-size:0.72rem; color:{P['muted']}; margin-top:2px; }}
 
-    /* Streamflow gauge rows - same visual family as .risk-row. */
+    /* Streamflow gauge rows. */
     .sf-row {{ display:flex; justify-content:space-between; align-items:baseline;
         padding:6px 0 0 0; font-size:0.82rem; }}
     .sf-name {{ font-size:0.68rem; color:{P['muted']}; padding-bottom:6px; line-height:1.3; }}
     .sf-value {{ font-weight:700; }}
-
-    .risk-row {{ display:flex; justify-content:space-between; align-items:center;
-        padding: 6px 10px 0 10px; border-radius: 10px; color:{P['text']}; }}
-    .risk-row-wrap:hover {{ background: {P['sidebar_bg']}; }}
-    .risk-pill {{ display:inline-block; padding: 2px 10px; border-radius: 999px; font-weight:600;
-        font-size: 0.78rem; color: #2b2b3a; }}
-    .risk-location {{ font-size:0.68rem; color:{P['muted']}; padding: 0 10px 6px 10px; line-height:1.3; }}
 
     /* Floating translucent bar along the bottom, same treatment as the
        header - anchored with clearance on the right so it doesn't sit
@@ -504,10 +548,31 @@ st.markdown(
        a date control and names the year the ticks belong to (the tick
        labels themselves are day+month only, so the year is otherwise only
        visible in the selected-date readout above the slider). */
-    .wq-cal {{ display:flex; flex-direction:column; align-items:center; justify-content:center;
-        gap:1px; color:{HEADER_NAVY}; padding-top:4px; }}
-    .wq-cal svg {{ width:22px; height:22px; }}
-    .wq-cal-year {{ font-size:0.6rem; font-weight:600; color:{P['muted']}; letter-spacing:.02em; }}
+    /* Icon and year side by side, not stacked. Stacked, the badge as a whole
+       centred correctly but the year - being its second line - sat 16px below
+       the centre line everything else in the bar shares (arrows 37, slider
+       40, language 39), so it read as misaligned against the EN/TH pill. In a
+       row both halves sit on that one line. */
+    /* The badge's box, sized to the language toggle's 38px so the two centre
+       lines coincide. It lives on this wrapper rather than on .wq-cal itself
+       because Streamlit's markdown wrappers in between collapse to 16px -
+       a min-height on the badge overflowed them downward instead of centring
+       inside them, which is what left the year sitting low. */
+    /* The column this sits in is already aligned with the language toggle
+       (both centre on the same line). What was off is INSIDE it: Streamlit
+       nests four wrappers around a markdown block and they collapse to a
+       couple of pixels, so the badge hung below whatever those wrappers
+       centred. Rather than centring a collapsed box, the whole chain is given
+       the badge's height and told to centre its contents. */
+    .st-key-cal_badge {{ min-height:38px; }}
+    .wq-cal {{ display:flex; flex-direction:row; align-items:center; justify-content:center;
+        gap:5px; color:{HEADER_NAVY}; min-height:38px; }}
+    .wq-cal svg {{ width:22px; height:22px; flex:0 0 auto; }}
+    /* Same size and weight as the EN/TH labels it sits opposite - they are
+       the two ends of one bar and a smaller, lighter year read as an error
+       rather than a hierarchy. */
+    .wq-cal-year {{ font-size:0.74rem; font-weight:700; color:{P['muted']};
+        letter-spacing:.02em; line-height:1; white-space:nowrap; }}
 
     /* Prev/next pair: outline triangles, tight together, no button boxes. */
     .st-key-date_nav {{ display:flex; align-items:center; }}
@@ -640,6 +705,10 @@ st.markdown(
     .rank-risk {{ display:inline-block; padding:1px 8px; border-radius:999px;
         font-size:0.68rem; font-weight:600; color:#2b2b3a; }}
 
+    /* The district choropleth's own styling lives inside its iframe (see
+       _CHOROPLETH_TEMPLATE) - a stylesheet only applies to its own document,
+       so rules written here would never reach it. */
+
     /* Streamlit Cloud's badge and owner avatar are NOT styled here. They live
        in the host page above this one - Cloud serves the app in a nested
        iframe - and a stylesheet only applies to its own document, so rules
@@ -735,9 +804,14 @@ st.markdown(
       .wq-tick-label {{ font-size:0.62rem; }}
       .wq-tick-row {{ margin-top:-30px; padding:0 4px; }}
 
-      .wq-cal {{ padding-top:0; }}
+      /* 32px here: the phone rules shrink the toggle to a 26px button in 3px
+         padding, so the box it has to line up with is smaller too, and the
+         year follows the toggle's smaller label size. */
+      .st-key-cal_badge {{ min-height:32px; }}
+      .wq-cal {{ min-height:32px; }}
+      .wq-cal {{ gap:4px; }}
       .wq-cal svg {{ width:18px; height:18px; }}
-      .wq-cal-year {{ font-size:0.54rem; }}
+      .wq-cal-year {{ font-size:0.66rem; }}
       .st-key-date_nav button {{ height:34px !important; min-height:34px !important;
           width:34px !important; background-size:23px 23px !important; }}
       .st-key-lang_toggle {{ width:76px; padding:3px; }}
@@ -798,8 +872,39 @@ def load_validation():
     return df, y, y_pred, r2, rmse
 
 
-def turbidity_overlay_rgba(turbidity_map, water_mask, band_rows=512):
-    """The map's turbidity image, as uint8 RGBA.
+def mercator_row_map(bounds, h):
+    """Source row for each row of a Web Mercator image of `h` rows.
+
+    folium's ImageOverlay stretches the image linearly between two lat/lon
+    corners, but Leaflet draws in Web Mercator, whose y axis is
+    ln(tan(pi/4 + lat/2)) - not linear in latitude. The composites are
+    EPSG:4326, so their rows are evenly spaced in latitude, and handing them
+    straight to ImageOverlay puts every row except the two edges too far
+    north. Over this province's 1.89 degrees of latitude that peaks at 233m
+    near lat 15.15 - wider than the Mun River, so the overlay slid clean off
+    the water it was meant to sit on.
+
+    Longitude needs no equivalent fix: Mercator x IS linear in longitude. So
+    this is a row gather, not a warp.
+
+    Nearest row, never interpolated. The overlay is categorical - class
+    colours plus a hard alpha edge - and blending rows would both invent
+    intermediate classes and fray the water's edge into half-transparent
+    pixels.
+    """
+    south, north = bounds.bottom, bounds.top
+    y_south = np.log(np.tan(np.pi / 4 + np.radians(south) / 2))
+    y_north = np.log(np.tan(np.pi / 4 + np.radians(north) / 2))
+    # Output row i is at an evenly spaced Mercator y; find the latitude that
+    # falls at, then the equal-latitude source row holding it.
+    y = y_north + (np.arange(h) + 0.5) / h * (y_south - y_north)
+    lat = np.degrees(2 * np.arctan(np.exp(y)) - np.pi / 2)
+    src = ((north - lat) / (north - south) * h).astype(np.intp)
+    return np.clip(src, 0, h - 1, out=src)
+
+
+def turbidity_overlay_rgba(turbidity_map, water_mask, bounds, band_rows=512):
+    """The map's turbidity image, as uint8 RGBA, on a Web Mercator grid.
 
     Two things here exist only to keep the peak allocation bounded, because
     this runs on every rerun and the raster is the whole province.
@@ -821,11 +926,20 @@ def turbidity_overlay_rgba(turbidity_map, water_mask, band_rows=512):
     norm = mcolors.BoundaryNorm([0] + breakpoints + [breakpoints[-1] * 3], cmap.N)
 
     h, w = turbidity_map.shape
+    rows = mercator_row_map(bounds, h)
     rgba = np.empty((h, w, 4), dtype=np.uint8)
     for y0 in range(0, h, band_rows):
         y1 = min(y0 + band_rows, h)
-        band = cmap(norm(turbidity_map[y0:y1]), bytes=True)
-        band[..., 3] = np.where(water_mask[y0:y1], 217, 0)  # 217/255 = the old 0.85
+        # Gather the source rows this output band needs, so the reprojection
+        # rides along inside the existing band loop and never materialises a
+        # second full-size image.
+        take = rows[y0:y1]
+        band = cmap(norm(turbidity_map[take]), bytes=True)
+        # 255 on water, 0 everywhere else. Fully opaque where there IS a
+        # reading, fully transparent where there is none - the alpha channel
+        # is what shapes the overlay to the water, so the 0 side has to stay
+        # 0 or the whole province rectangle would be painted.
+        band[..., 3] = np.where(water_mask[take], 255, 0)
         rgba[y0:y1] = band
     return rgba
 
@@ -1159,9 +1273,13 @@ def _drop_admin_word(value, label):
     return v or value.strip()
 
 
-def station_popup_html(code, predicted_ntu, measured_ntu, class_label):
+def station_popup_html(code, predicted_ntu, measured_ntu, cls):
     """The card shown when a station marker is clicked: station code as the
     heading, then where it is, then its numbers.
+
+    The level is a filled pill in its own class colour rather than a word, so
+    it reads the same way as the marker it came from, the legend and the
+    district card - one severity scale, shown one way everywhere.
 
     The note at the foot is what the old inline labels ("Predicted
     (satellite)", "Measured (PCD avg)") used to carry. Those qualifiers
@@ -1189,7 +1307,9 @@ def station_popup_html(code, predicted_ntu, measured_ntu, class_label):
         + '<div class="wq-pop-group">'
         f'<div class="wq-pop-row"><b>{T["popup_predicted"]}:</b> {predicted_ntu:.1f} NTU</div>'
         f'<div class="wq-pop-row"><b>{T["popup_measured"]}:</b> {measured_ntu:.1f} NTU</div>'
-        f'<div class="wq-pop-row"><b>{T["popup_level"]}:</b> {class_label}</div>'
+        f'<div class="wq-pop-row"><b>{T["popup_level"]}:</b> '
+        f'<span class="wq-pop-pill" style="background:{cls["color"]}">'
+        f'{predicted_ntu:.1f} NTU &middot; {cls["label"]}</span></div>'
         '</div>'
         f'<div class="wq-pop-note">{T["popup_note"].format(date=f"{picked_date:%d %b %Y}")}</div>'
     )
@@ -1203,7 +1323,7 @@ for _, r in station_now.iterrows():
         radius=8, color=STATION_STROKE_COLOR, weight=1, fill=True,
         fill_color=cls["color"], fill_opacity=0.95,
         popup=folium.Popup(
-            station_popup_html(r["Code"], r["Predicted_NTU"], r["Turbidity_Actual"], cls["label"]),
+            station_popup_html(r["Code"], r["Predicted_NTU"], r["Turbidity_Actual"], cls),
             # Wide enough for "Mueang Ubon Ratchathani" to stay on one line;
             # min_width stops short codes collapsing the card to a sliver.
             max_width=320, min_width=250,
@@ -1224,6 +1344,320 @@ stations_def = {
 PROVINCE_NAME_FIELD = "ADM1_NAME_TH" if LANG == "th" else "ADM1_NAME"
 DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
 
+# District name labels. Dark text with a white halo rather than a filled chip:
+# the halo keeps the name legible over the Satellite basemap without painting
+# 25 opaque boxes across the water the map exists to show.
+# position:absolute is load-bearing, not decoration. As a plain block child of
+# the 0x0 DivIcon container the div inherits width 0 - the text still paints,
+# because overflow is visible, but getBoundingClientRect reports a zero-width
+# box and declutter_labels can then never detect a collision. Out of flow it
+# shrinks to fit its own text, so the measured box is the text.
+DISTRICT_LABEL_CSS = (
+    "position:absolute;left:0;top:0;"
+    "font:600 11px/1.15 'Poppins','Noto Sans Thai',sans-serif;"
+    "color:#3d4652;"
+    "text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;"
+    "white-space:nowrap;transform:translate(-50%,-50%);"
+    "pointer-events:none;"
+)
+
+
+# Self-contained page for the sidebar choropleth iframe. It inherits nothing
+# from the app - not the font, not the palette - so everything it needs is
+# substituted in. Braces are doubled where they are literal CSS/JS.
+_CHOROPLETH_TEMPLATE = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Noto+Sans+Thai:wght@400;600;700&display=swap');
+* {{ box-sizing: border-box; }}
+body {{ margin:0; font-family:{font}; background:transparent; }}
+#wrap {{ position:relative; width:100%; }}
+svg {{ width:100%; height:auto; display:block; }}
+path {{ stroke:#fff; stroke-width:1; vector-effect:non-scaling-stroke;
+        cursor:pointer; transition:opacity .12s ease; }}
+#wrap.act path {{ opacity:.4; }}
+#wrap.act path.on {{ opacity:1; stroke:{muted}; stroke-width:1.6; }}
+
+/* The card sits in normal flow rather than over the map, and the frame is
+   always drawn - only its contents come and go. That keeps a stable, visible
+   place for the reading, so nothing appears out of nowhere and the map never
+   shifts down as the pointer moves between districts. */
+#tip {{ background:#fff; border:1px solid {border}; border-radius:10px;
+        padding:9px 12px; margin-bottom:8px;
+        box-shadow:0 2px 6px rgba(20,25,40,.07);
+        pointer-events:none; }}
+/* The rows, not the card, are what fades. They keep their boxes either way,
+   which is what holds the frame at one height. */
+.row {{ display:flex; align-items:baseline; gap:6px; line-height:1.35;
+        opacity:0; transition:opacity .1s ease; }}
+#tip.on .row {{ opacity:1; }}
+.row + .row {{ margin-top:4px; }}
+.rl {{ font-weight:700; color:{text}; flex:0 0 auto; }}
+#nm {{ font-size:14px; }}
+#nmt {{ font-weight:400; color:{text}; }}
+#tv {{ font-size:12px; }}
+#pill {{ display:inline-block; padding:2px 10px; border-radius:999px;
+         font-size:11.5px; font-weight:700; color:{text}; white-space:nowrap; }}
+/* An empty pill is 4px tall (padding only), a filled one ~19px, which moved
+   the frame by 3px every time a district was picked. A non-breaking space
+   gives the empty one a line box, so the frame holds one height. */
+#pill:empty::before {{ content:'\\00a0'; }}
+#hint {{ font-size:10px; color:{muted}; padding:3px 1px 0; }}
+</style>
+<div id="wrap">
+  <div id="tip">
+    <div class="row" id="nm"><span class="rl">{district_label}:</span><span id="nmt"></span></div>
+    <div class="row" id="tv"><span class="rl">{turbidity_label}:</span><span id="pill"></span></div>
+  </div>
+  <svg viewBox="0 0 {vb_w} {vb_h}" role="img" aria-label="{label}">{paths}</svg>
+</div>
+<div id="hint">{hint}</div>
+<script>
+const D = {data};
+const wrap = document.getElementById('wrap'), tip = document.getElementById('tip');
+const nmt = document.getElementById('nmt'), pill = document.getElementById('pill');
+let current = null;
+
+function show(el) {{
+  const d = D[el.id];
+  if (!d) return;
+  if (current) current.classList.remove('on');
+  current = el; el.classList.add('on');
+  nmt.textContent = d.name;
+  pill.innerHTML = d.detail;
+  // The pill carries the class colour, so the reading and the shape on the
+  // map say the same thing without a separate key.
+  pill.style.background = d.color;
+  wrap.classList.add('act'); tip.classList.add('on');
+}}
+function hide() {{
+  if (current) current.classList.remove('on');
+  current = null;
+  wrap.classList.remove('act'); tip.classList.remove('on');
+}}
+
+document.querySelectorAll('svg path').forEach(function (p) {{
+  // pointerenter carries the cursor; pointerdown carries the tap. A touch
+  // device fires no enter at all, which is why CSS :hover alone could not
+  // satisfy this.
+  p.addEventListener('pointerenter', function () {{ show(p); }});
+  p.addEventListener('pointerdown', function (e) {{ e.preventDefault(); show(p); }});
+}});
+// Moving the cursor off the map clears it - but ONLY for a mouse. A touch
+// pointer is destroyed the moment the finger lifts, which fires pointerleave
+// too, and hiding on that tore the banner down instantly on every tap: the
+// text was set and then cleared before it could be seen.
+document.querySelector('svg').addEventListener('pointerleave', function (e) {{
+  if (e.pointerType === 'mouse') hide();
+}});
+// What clears it on touch: tapping anywhere that is not a district.
+document.addEventListener('pointerdown', function (e) {{
+  if (e.target.tagName.toLowerCase() !== 'path') hide();
+}});
+
+// The sidebar decides our width, so the height can only be known here.
+//
+// Measured from the last element's bottom, NOT documentElement.scrollHeight:
+// the html element stretches to fill whatever height the iframe currently
+// has, so scrollHeight can never report less than the value it is being used
+// to set. That fed back and pinned the frame at its initial guess, leaving
+// 111px of blank sidebar under the hint.
+function fit() {{
+  const last = document.getElementById('hint');
+  const h = Math.ceil(last.getBoundingClientRect().bottom) + 2;
+  const f = window.frameElement;
+  if (!f) return;
+  f.style.height = h + 'px';
+  // Streamlit reserves the `height` argument on the iframe's CONTAINER, and
+  // resizing only the iframe leaves that container at its original size - the
+  // sidebar then keeps the difference as blank space (126px of it here).
+  //
+  // flex-basis, not height. The container is a flex item in Streamlit's
+  // column layout with `flex: 0 0 <reserved>px`, and in a column flex
+  // container the basis IS the height - so setting `height` had no effect at
+  // all, even inline and even with !important. Both are set: the basis is
+  // what actually governs, the height keeps the two consistent.
+  const box = f.parentElement;
+  if (box) {{
+    box.style.setProperty('flex', '0 0 ' + h + 'px', 'important');
+    box.style.setProperty('height', h + 'px', 'important');
+  }}
+}}
+window.addEventListener('load', fit);
+window.addEventListener('resize', fit);
+fit();
+</script>
+"""
+
+
+@st.cache_data(show_spinner=False)
+def district_svg_shapes(name_field, province=FOCUS_PROVINCE, width=286, tolerance=0.0025):
+    """(width, height, [(key, display_name, svg_path)]) for a sidebar choropleth.
+
+    An inline SVG rather than a second folium map. A Leaflet instance costs
+    another iframe, its own tile requests and a full re-serialisation on every
+    rerun - for a thumbnail in a 300px column that never pans or zooms. The
+    geometry is already loaded, so this is a projection and a string.
+
+    Mercator y, matching the main map, so the two show the same province the
+    same shape. At this size the choice is worth about half a pixel; it is
+    made anyway because having a thumbnail that disagrees with the map beside
+    it is the sort of thing nobody ever tracks down later.
+
+    `key` is always ADM2_NAME because district_ntu() ranks by that regardless
+    of interface language; `display_name` follows the language. Joining on the
+    displayed name would silently produce an all-grey map in Thai.
+    """
+    import math
+
+    from shapely.geometry import shape
+
+    features = [f for f in geo.load_districts()["features"]
+                if f["properties"].get("ADM1_NAME") == province]
+    if not features:
+        return 0, 0, []
+
+    def merc_y(lat):
+        # Degrees, not radians. x below is raw longitude in degrees, and
+        # log(tan(...)) comes out in radians - mixing the two squashed the
+        # whole province into a 7px-tall sliver, scaled wrong by 180/pi.
+        return math.degrees(math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)))
+
+    geoms = [shape(f["geometry"]).simplify(tolerance, preserve_topology=True)
+             for f in features]
+    lons = [c for g in geoms for c in (g.bounds[0], g.bounds[2])]
+    lats = [c for g in geoms for c in (g.bounds[1], g.bounds[3])]
+    x0, x1 = min(lons), max(lons)
+    y0, y1 = merc_y(min(lats)), merc_y(max(lats))
+    scale = width / (x1 - x0)
+    height = (y1 - y0) * scale
+
+    def ring(coords):
+        pts = [f"{(lon - x0) * scale:.1f},{(y1 - merc_y(lat)) * scale:.1f}"
+               for lon, lat in coords]
+        return "M" + "L".join(pts) + "Z"
+
+    shapes = []
+    for feature, geom in zip(features, geoms):
+        parts = geom.geoms if geom.geom_type == "MultiPolygon" else [geom]
+        d = "".join(ring(p.exterior.coords) + "".join(ring(i.coords) for i in p.interiors)
+                    for p in parts)
+        props = feature["properties"]
+        shapes.append((props["ADM2_NAME"], props.get(name_field) or props["ADM2_NAME"], d))
+    return width, height, shapes
+
+
+def district_choropleth_html(ranking):
+    """The district ranking drawn as a map: each amphoe filled by its
+    turbidity class, in the same colours as the legend and the map overlay,
+    with a detail banner on hover or tap.
+
+    Districts absent from `ranking` are the ones whose polygon contained no
+    water pixel on this date - cloud, or simply no mapped water - and are
+    drawn in the no-data grey rather than the lowest class, which would read
+    as "clean" for somewhere nothing was measured at all.
+
+    Rendered through components.html rather than st.markdown, because this
+    needs real JavaScript and st.markdown strips <script>. CSS alone was tried
+    first and does not cover the ask:
+
+      - :hover works, and handles the cursor case.
+      - :focus does NOT match on an SVG <path>, even with tabindex and even
+        when document.activeElement is that path - measured, not assumed.
+      - Mobile "sticky hover" does not fire either: a real emulated tap left
+        the banner at opacity 0.
+
+    So the tap case has no CSS-only mechanism. pointerenter drives the cursor,
+    pointerdown drives the tap, and both feed the same banner.
+
+    The iframe sizes itself: its height depends on the width the sidebar gives
+    it, which is not knowable here, so the page reports its own height back
+    through window.frameElement once laid out.
+    """
+    width, height, shapes = district_svg_shapes(DISTRICT_NAME_FIELD)
+    if not shapes:
+        return "", 0
+
+    ntu = {r.District: r.NTU for r in ranking.itertuples()}
+
+    paths, detail = [], {}
+    for i, (key, name, d) in enumerate(shapes):
+        value = ntu.get(key)
+        if value is None:
+            fill = DISTRICT_NODATA_COLOR
+            line2 = T["no_water_pixels"]
+        else:
+            cls = style.classify(value)
+            fill = cls["color"]
+            line2 = f"{value:.1f} NTU &middot; {cls['label']}"
+        paths.append(f'<path id="dp{i}" d="{d}" fill="{fill}"/>')
+        detail[f"dp{i}"] = {"name": name, "detail": line2, "color": fill}
+
+    aspect = height / width if width else 1.0
+    return _CHOROPLETH_TEMPLATE.format(
+        font=FONT_STACK,
+        text=P["text"], muted=P["muted"], border=P["border"],
+        vb_w=f"{width:.0f}", vb_h=f"{height:.0f}",
+        paths="".join(paths),
+        data=json.dumps(detail, ensure_ascii=False),
+        label=html.escape(T["district_ranking"]),
+        hint=html.escape(T["district_map_hint"]),
+        district_label=html.escape(T["district_label"]),
+        turbidity_label=html.escape(T["turbidity_label"]),
+    ), aspect
+
+
+@st.cache_data(show_spinner=False)
+def district_label_points(name_field, province=FOCUS_PROVINCE):
+    """(lat, lon, name) for each of `province`'s districts.
+
+    Reads the boundaries itself rather than taking them as an argument:
+    st.cache_data hashes its inputs, and hashing a 930-feature GeoJSON on
+    every rerun would cost more than the work it is caching.
+
+    name_field has no default on purpose. st.cache_data keys on the arguments
+    it is passed, so a defaulted field would be absent from the key and the
+    English labels would be served to the Thai interface - which is exactly
+    what happened before the caller was made to pass it.
+
+    Ubon's 25 rather than all 930. The map opens fitted to Ubon, so national
+    labels would be off-screen text that still ships on every rerun - and at
+    that zoom the ones that did land on screen would overplot each other into
+    an unreadable smear. Districts elsewhere keep the hover tooltip they have
+    always had.
+
+    representative_point(), not centroid: a centroid can fall outside a
+    concave amphoe or land in the water between the parts of a multipolygon,
+    which would put the name somewhere the district isn't. For multipolygons
+    the point is taken from the largest part, so the label sits on the main
+    body rather than on an outlying sliver.
+
+    Returns (lat, lon, name, rank), rank 0 being the largest district by area.
+    Zoomed out there is not room for all 25 names, so map_controls.declutter_
+    labels() drops whichever ones collide - and it needs an ordering to decide
+    what to drop. Area is the honest one: the big rural amphoe are the ones
+    with space to print a name in, and the cluster that actually overlaps is
+    the small districts ringing Ubon city.
+    """
+    from shapely.geometry import shape
+
+    points = []
+    for feature in geo.load_districts()["features"]:
+        props = feature["properties"]
+        if props.get("ADM1_NAME") != province:
+            continue
+        name = props.get(name_field)
+        if not name:
+            continue
+        geom = shape(feature["geometry"])
+        area = geom.area
+        if geom.geom_type == "MultiPolygon":
+            geom = max(geom.geoms, key=lambda g: g.area)
+        pt = geom.representative_point()
+        points.append((pt.y, pt.x, name, area))
+
+    points.sort(key=lambda p: -p[3])
+    return [(lat, lon, name, rank) for rank, (lat, lon, name, _a) in enumerate(points)]
+
 # Boundary draw order, lowest first: districts, then the other 76 provinces,
 # then Ubon. Leaflet paints these SVG paths in the order they are added, so
 # whatever is added last sits on top - and the Ubon highlight is meant to be
@@ -1234,18 +1668,55 @@ DISTRICT_NAME_FIELD = "ADM2_NAME_TH" if LANG == "th" else "ADM2_NAME"
 # rather than the secondary detail it was when it held one province, and
 # leaving it switched off meant a visitor never saw it without hunting through
 # the rail for a toggle. ---
+# --- Water: Thailand's wetland areas, from the local archive. Added before
+# the boundaries and the raster so it sits under both - it is the ground the
+# reading sits on, and drawing it over the turbidity overlay would hide what
+# the map exists to show. ---
+water_def = None
+try:
+    water_layer = folium.GeoJson(
+        geo.load_water(), name="Water",
+        style_function=lambda f: {
+            "color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.6,
+            "fill": True, "fillColor": WATER_FILL_COLOR,
+            "fillOpacity": WATER_FILL_OPACITY,
+        },
+        show=True,
+    )
+    water_layer.add_to(fmap)
+    water_def = {"key": "water", "label": T["water_label"],
+                 "layer": water_layer, "default_on": True,
+                 "title": T["water_source"]}
+except FileNotFoundError:
+    pass
+
 district_def = None
 try:
     districts_geojson = geo.load_districts()
-    district_layer = folium.GeoJson(
-        districts_geojson, name="Districts",
+    # Outlines and name labels travel together in one FeatureGroup, so the
+    # rail's existing District button switches both: labels floating over a
+    # map with no boundaries under them would read as loose noise.
+    district_layer = folium.FeatureGroup(name="Districts", show=True)
+    folium.GeoJson(
+        districts_geojson, name="District boundaries",
         # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
         # shows more than a province or two.
         style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
                                    "fill": False, "fillOpacity": 0},
         tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
-        show=True,
-    )
+    ).add_to(district_layer)
+    for lat, lon, label, rank in district_label_points(DISTRICT_NAME_FIELD):
+        folium.Marker(
+            location=[lat, lon],
+            icon=folium.DivIcon(
+                # 0x0 container, and the text centred on it by transform. The
+                # container has no area, so labels cannot swallow clicks meant
+                # for the station markers underneath.
+                icon_size=(0, 0), icon_anchor=(0, 0),
+                html=f'<div class="wq-dlabel" data-wq-rank="{rank}" '
+                     f'style="{DISTRICT_LABEL_CSS}">{label}</div>',
+            ),
+        ).add_to(district_layer)
     district_layer.add_to(fmap)
     district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
 except FileNotFoundError:
@@ -1292,18 +1763,27 @@ try:
 except FileNotFoundError as e:
     st.info(str(e))
 
-overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask)
+overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask, bounds)
+# Added after the water layer and the boundaries, so it draws over them:
+# Leaflet paints in insertion order, and this is the reading the map exists
+# to show.
+#
+# opacity=1, and the per-pixel alpha above is 255 too. Both mattered - the two
+# multiply, so the old 0.9 here on top of 217/255 there left the reading at
+# 76% and the water layer showing through it.
 turbidity_layer = folium.raster_layers.ImageOverlay(
     image=overlay_rgba,
     bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-    opacity=0.9, name="Turbidity", show=True,
+    opacity=1, name="Turbidity", show=True,
 )
 turbidity_layer.add_to(fmap)
 turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": turbidity_layer, "default_on": True}
 
 station_layer.add_to(fmap)
 
-overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def] if d is not None]
+# Water last, so its rail button sits below the turbidity one.
+overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def,
+                            water_def] if d is not None]
 map_controls.add_layer_rail(
     fmap, basemap_tile_layers, DEFAULT_BASEMAP, overlay_defs, build_legend_html(),
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
@@ -1313,6 +1793,9 @@ map_controls.add_layer_rail(
 map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
 map_controls.add_zoom_control(fmap)
 map_controls.compact_attribution(fmap)
+# After the view is restored, so the first pass measures the zoom the reader
+# actually lands on rather than folium's initial one.
+map_controls.declutter_labels(fmap)
 
 # height is generously large; the CSS rule on this iframe (see <style> above)
 # clips/fills it to the actual viewport, so this just needs to cover the tallest
@@ -1330,15 +1813,20 @@ with st.container(key="timeline_bar"):
     with nav_cal:
         years = sorted({d.year for d in dates})
         year_label = str(years[0]) if len(years) == 1 else f"{years[0]}-{years[-1]}"
-        st.markdown(
-            f'<div class="wq-cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
-            f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-            f'<rect x="3" y="5" width="18" height="16" rx="2.5"/>'
-            f'<path d="M3 10h18M8 3v4M16 3v4"/>'
-            f'<path d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2M11 17.5h2"/></svg>'
-            f'<div class="wq-cal-year">{year_label}</div></div>',
-            unsafe_allow_html=True,
-        )
+        # Keyed container purely to get a stable hook for centring: the
+        # markdown wrappers Streamlit puts around this collapse to 16px, so a
+        # min-height on the badge itself overflowed downward instead of
+        # centring, leaving the year sitting below the EN/TH pill.
+        with st.container(key="cal_badge"):
+            st.markdown(
+                f'<div class="wq-cal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+                f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
+                f'<rect x="3" y="5" width="18" height="16" rx="2.5"/>'
+                f'<path d="M3 10h18M8 3v4M16 3v4"/>'
+                f'<path d="M7.5 14h2M11 14h2M14.5 14h2M7.5 17.5h2M11 17.5h2"/></svg>'
+                f'<div class="wq-cal-year">{year_label}</div></div>',
+                unsafe_allow_html=True,
+            )
 
     # The prev/next block is executed BEFORE the slider even though it sits
     # to the right of it: `with nav_arrows` writes into that column wherever
@@ -1402,7 +1890,8 @@ with st.container(key="timeline_bar"):
 # cold load - the sections below loop over every composite and make a network
 # call to the RID gauge service, and are the slowest things on the page.
 with st.sidebar:
-    st.caption(T["situation_overview"])
+    st.markdown(f'<div class="sb-heading">{T["situation_overview"]}</div>',
+                unsafe_allow_html=True)
 
     # --- Headline: latest province-wide turbidity ---
     st.markdown(f"#### {T['latest_turbidity']}")
@@ -1581,26 +2070,12 @@ with st.sidebar:
         st.caption(T["no_districts"])
     else:
         st.caption(f'{T["district_ranking_note"]} &middot; {picked_date:%d %b %Y}')
-        for i, row in enumerate(districts.itertuples(), start=1):
-            cls = style.classify(row.NTU)
-            st.markdown(
-                f'<div class="rank-row"><span class="rank-num">{i}</span>'
-                f'<span class="rank-name">{row.District}</span>'
-                f'<span class="rank-ntu">{row.NTU:.1f} NTU</span>'
-                f'<span class="rank-risk" style="background:{cls["color"]}">{cls["label"]}</span></div>',
-                unsafe_allow_html=True,
-            )
-
-    # --- Ranked station list ---
-    st.markdown(f"#### {T['stations_heading']}")
-    for _, r in station_now.iterrows():
-        cls = style.classify(r["Predicted_NTU"])
-        st.markdown(
-            f'<div class="risk-row-wrap"><div class="risk-row"><span>{r["Code"]}</span>'
-            f'<span class="risk-pill" style="background:{cls["color"]}">{r["Predicted_NTU"]:.1f} NTU &middot; {cls["label"]}</span></div>'
-            f'<div class="risk-location">{station_geo.get(r["Code"], "")}</div></div>',
-            unsafe_allow_html=True,
-        )
+        choropleth, aspect = district_choropleth_html(districts)
+        if choropleth:
+            # A starting height only. The iframe measures itself once the
+            # sidebar has given it a width and corrects this - see fit().
+            components.html(choropleth, height=int(300 * aspect) + 108,
+                            scrolling=False)
 
 
 # ---------------------------------------------------- cloud chrome hiding ---
