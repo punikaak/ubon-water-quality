@@ -1288,28 +1288,27 @@ def _drop_admin_word(value, label):
 VALUE_PNG_MAX_NTU = 1400.0
 
 
-def static_png(name, png_bytes):
-    """Write a PNG into static/ and return the URL Streamlit serves it at.
+def send_once(key, loader):
+    """The layer's GeoJSON on a session's first render, None on every later one.
 
-    Images referenced by URL rather than inlined as a data: URI. The colour
-    overlay and the hidden value image are ~2MB together, which base64 inflates
-    to ~2.7MB, and streamlit_folium re-sends the whole map on every rerun - so
-    that was paid again on each date change even when returning to a date the
-    browser had already seen. As files they are cached per date instead.
+    Paired with map_controls.add_geojson_layer, which parks the data on the top
+    window: that survives a rerun (Streamlit rebuilds the map iframe but never
+    reloads the page around it), so re-sending it would be re-sending something
+    the browser already holds. This is what took a date change from 50.2MB to
+    a few hundred KB.
 
-    Written once and left: same date, same bytes, so an existing file is
-    already correct. Twelve dates is ~24MB of disk, which the container has.
+    Keyed per session, so a page reload - which clears both the session and the
+    window it cached into - sends it again, keeping the two in step.
     """
-    os.makedirs(geo.STATIC_DIR, exist_ok=True)
-    path = os.path.join(geo.STATIC_DIR, name)
-    if not os.path.exists(path) or os.path.getsize(path) != len(png_bytes):
-        with open(path, "wb") as f:
-            f.write(png_bytes)
-    return geo.static_url(path)
+    sent = st.session_state.setdefault("_wq_layers_sent", set())
+    if key in sent:
+        return None
+    sent.add(key)
+    return loader()
 
 
 @st.cache_data(show_spinner=False)
-def value_png_url(path):
+def value_png_data_uri(path):
     """The turbidity values as a hidden PNG, for client-side readout.
 
     Why an image and not vector cells. The obvious way to make each pixel
@@ -1341,8 +1340,7 @@ def value_png_url(path):
     buf = io.BytesIO()
     Image.fromarray(np.dstack([grey, alpha]), mode="LA").save(
         buf, format="PNG", optimize=True)
-    stem = os.path.splitext(os.path.basename(path))[0]
-    return static_png(f"value_{stem}.png", buf.getvalue())
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def station_popup_html(code, predicted_ntu, measured_ntu, cls):
@@ -1761,11 +1759,11 @@ WATER_PANE = "waterpane"
 folium.map.CustomPane(WATER_PANE, z_index=350, pointer_events=False).add_to(fmap)
 
 # Fetched by the browser rather than embedded - 7.9MB of wetland polygons that
-# never change with the date. See map_controls.add_geojson_from_url.
+# never change with the date. See map_controls.add_geojson_layer.
 water_layer = folium.FeatureGroup(name="Water", show=True)
 water_layer.add_to(fmap)
-map_controls.add_geojson_from_url(
-    fmap, water_layer, geo.static_url(geo.WATER_CACHE),
+map_controls.add_geojson_layer(
+    fmap, water_layer, "water", send_once("water", geo.load_water),
     style={"color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.4,
            "fill": True, "fillColor": WATER_FILL_COLOR,
            "fillOpacity": WATER_FILL_OPACITY},
@@ -1784,13 +1782,14 @@ try:
     # The outlines are fetched by the browser (5.9MB that never changes with
     # the date); the 25 labels are generated here, being a few KB.
     district_layer = folium.FeatureGroup(name="Districts", show=True)
-    # add_to BEFORE add_geojson_from_url, as with the water and province
+    # add_to BEFORE add_geojson_layer, as with the water and province
     # layers. folium emits every child's JS in the order the children were
     # added, so a fetch script registered first would run before the
     # `var district_layer = L.featureGroup(...)` it assigns into.
     district_layer.add_to(fmap)
-    map_controls.add_geojson_from_url(
-        fmap, district_layer, geo.static_url(geo.DISTRICTS_CACHE),
+    map_controls.add_geojson_layer(
+        fmap, district_layer, "districts",
+        send_once("districts", geo.load_districts),
         # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
         # shows more than a province or two.
         style={"color": DISTRICT_LINE_COLOR, "weight": 0.8,
@@ -1815,11 +1814,12 @@ except FileNotFoundError:
 
 # --- All Thailand provinces, Ubon Ratchathani highlighted. Fetched by the
 # browser like the districts; the Ubon-last ordering that keeps its highlight
-# on top is done there too (see add_geojson_from_url's focus_* arguments). ---
+# on top is done there too (see add_geojson_layer's focus_* arguments). ---
 province_layer = folium.FeatureGroup(name="Provinces", show=True)
 province_layer.add_to(fmap)
-map_controls.add_geojson_from_url(
-    fmap, province_layer, geo.static_url(geo.THAILAND_PROVINCES_CACHE),
+map_controls.add_geojson_layer(
+    fmap, province_layer, "provinces",
+    send_once("provinces", geo.load_thailand_provinces),
     # fill:False (not just fillOpacity:0) - otherwise the invisible fill still
     # counts as "painted" for hit-testing and the whole province polygon
     # (which covers every station) swallows clicks meant for the markers
@@ -1837,21 +1837,6 @@ map_controls.add_geojson_from_url(
 province_def = {"key": "province", "label": T["province_label"],
                 "layer": province_layer, "default_on": True}
 
-@st.cache_data(show_spinner=False)
-def colour_png_url(path, lang):
-    """The turbidity overlay as a URL, not an inline data: URI.
-
-    Same reason as value_png_url - see static_png. `lang` is in the cache key
-    only because the class palette is language-independent today and this
-    would silently serve a stale image if that ever stopped being true.
-    """
-    turb, mask, bnds = pc.load_display(path)
-    rgba = turbidity_overlay_rgba(turb, mask, bnds)
-    buf = io.BytesIO()
-    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=False)
-    stem = os.path.splitext(os.path.basename(path))[0]
-    return static_png(f"turb_{stem}.png", buf.getvalue())
-
 
 # Added after the water layer and the boundaries, so it draws over them:
 # Leaflet paints in insertion order, and this is the reading the map exists
@@ -1860,18 +1845,12 @@ def colour_png_url(path, lang):
 # opacity=1, and the per-pixel alpha above is 255 too. Both mattered - the two
 # multiply, so the old 0.9 here on top of 217/255 there left the reading at
 # 76% and the water layer showing through it.
+overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask, bounds)
 turbidity_layer = folium.raster_layers.ImageOverlay(
-    # A 1x1 transparent placeholder, replaced below. folium reads a plain
-    # string as a FILE PATH and tries to open it, so a site-relative URL
-    # cannot be passed to the constructor - but its template renders
-    # `this.url` verbatim, so assigning afterwards is what gets the browser to
-    # fetch (and cache) the image instead of carrying it inline.
-    image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
-          "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    image=overlay_rgba,
     bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
     opacity=1, name="Turbidity", show=True,
 )
-turbidity_layer.url = colour_png_url(picked_path, LANG)
 turbidity_layer.add_to(fmap)
 turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": turbidity_layer, "default_on": True}
 
@@ -1879,7 +1858,7 @@ station_layer.add_to(fmap)
 
 # --- Tap-to-read, entirely client-side. See map_controls.add_pixel_readout.
 map_controls.add_pixel_readout(
-    fmap, value_png_url(picked_path), bounds,
+    fmap, value_png_data_uri(picked_path), bounds,
     {
         "classes": [{"max": c["max"], "color": c["color"], "label": c["label"]}
                     for c in style.CLASSES],
