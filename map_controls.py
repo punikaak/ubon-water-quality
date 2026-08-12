@@ -592,6 +592,107 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
     _RawScript(js).add_to(fmap)
 
 
+def add_geojson_from_url(fmap, target, url, style, pane=None, tooltip_field=None,
+                         focus_field=None, focus_value=None, focus_style=None):
+    """Fill `target` by fetching GeoJSON in the browser, not by embedding it.
+
+    This is a payload fix, and the numbers are the reason it exists. Streamlit
+    pushes each rerun down a websocket, and streamlit_folium re-serialises the
+    whole map every time - so the boundary and water geometry, which does not
+    change when the date does, was being re-sent on every date change. One
+    date step measured 50.2MB over that socket.
+
+    Fetched from a URL instead, the browser caches it: it is downloaded once
+    per session and every later rerun ships a few hundred bytes of JS instead
+    of megabytes of coordinates.
+
+    `target` is an empty FeatureGroup already added to the map, so everything
+    that needs a layer object - the rail's toggle, the pixel readout's
+    district lookup - keeps working against the same handle whether or not the
+    fetch has landed yet.
+
+    `focus_*` singles out one feature to draw differently AND last, which is
+    how Ubon's highlight stays on top of the other 76 provinces' lines.
+    Leaflet paints in insertion order, so the split is the ordering.
+    """
+    tooltip_js = f"""
+      layer.eachLayer(function (l) {{
+        var v = l.feature && l.feature.properties
+              ? l.feature.properties[{json.dumps(tooltip_field)}] : null;
+        if (v) l.bindTooltip(String(v), {{sticky: true}});
+      }});""" if tooltip_field else ""
+
+    js = f"""
+(function () {{
+  var target = {target.get_name()};
+  var PANE = {json.dumps(pane)};
+  function build(features, css) {{
+    var opts = {{style: function () {{ return css; }}}};
+    if (PANE) opts.pane = PANE;
+    var layer = L.geoJSON({{type: 'FeatureCollection', features: features}}, opts);
+    {tooltip_js}
+    layer.addTo(target);
+  }}
+  // Kept on the TOP window, not in the HTTP cache, because Chrome will not
+  // store these responses: Streamlit's static handler sends no Cache-Control,
+  // no Expires and no Last-Modified, so there is no freshness information to
+  // cache against and even fetch(cache:'force-cache') re-downloads every
+  // time - measured, three fetches of the same URL, three full downloads.
+  //
+  // Streamlit rebuilds this iframe on each rerun but never reloads the page
+  // around it, so the parent outlives us and is the one place a parsed layer
+  // can be kept. The URL carries a version stamp (geo_boundary.static_url),
+  // so a rebuilt file is a different key and is fetched again.
+  var store;
+  try {{
+    store = (window.top.__wqGeoCache = window.top.__wqGeoCache || {{}});
+  }} catch (e) {{
+    store = {{}};   // cross-origin parent: fall back to fetching each time
+  }}
+  var KEY = {json.dumps(url)};
+
+  function render(gj) {{
+      var feats = gj.features || [];
+      var focusField = {json.dumps(focus_field)};
+      if (!focusField) {{ build(feats, {json.dumps(style)}); return; }}
+      var focus = [], others = [];
+      feats.forEach(function (f) {{
+        var p = f.properties || {{}};
+        (p[focusField] === {json.dumps(focus_value)} ? focus : others).push(f);
+      }});
+      build(others, {json.dumps(style)});
+      build(focus, {json.dumps(focus_style or style)});
+  }}
+
+  // Deferred, not called straight away, even though the data is already here.
+  // The fetch path always resolved after this whole generated script had run;
+  // taking the cached path synchronously instead ran it mid-script, before the
+  // layer variables it needs exist, and the resulting throw aborted every
+  // remaining statement - which took the turbidity overlay down with it and
+  // left the map empty on the second render.
+  if (store[KEY]) {{
+    setTimeout(function () {{ render(store[KEY]); }}, 0);
+  }} else {{
+    fetch(KEY)
+      .then(function (r) {{
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }})
+      .then(function (gj) {{
+        store[KEY] = gj;
+        render(gj);
+      }})
+      .catch(function (e) {{
+        // Silent on the map, loud in the console: a missing cache file should
+        // not blank the whole dashboard.
+        console.error('layer fetch failed', KEY, e);
+      }});
+  }}
+}})();
+"""
+    _RawScript(js).add_to(fmap)
+
+
 def add_pixel_readout(fmap, value_png, bounds, config, district_layer=None):
     """Tap anywhere on the raster and get that cell's reading, with no rerun.
 
@@ -633,7 +734,25 @@ def add_pixel_readout(fmap, value_png, bounds, config, district_layer=None):
     ctx = canvas.getContext('2d', {{willReadFrequently: true}});
     ctx.drawImage(img, 0, 0);
   }};
-  img.src = {json.dumps(value_png)};
+  // Blob kept on the top window for the same reason as the boundary layers -
+  // these responses are not HTTP-cacheable. Keyed by URL, so stepping back to
+  // a date already visited costs nothing. A fresh object URL is minted per
+  // render because the old one dies with the iframe that created it.
+  var imgStore;
+  try {{
+    imgStore = (window.top.__wqPngCache = window.top.__wqPngCache || {{}});
+  }} catch (e) {{
+    imgStore = {{}};
+  }}
+  var IMG_KEY = {json.dumps(value_png)};
+  if (imgStore[IMG_KEY]) {{
+    setTimeout(function () {{ img.src = URL.createObjectURL(imgStore[IMG_KEY]); }}, 0);
+  }} else {{
+    fetch(IMG_KEY)
+      .then(function (r) {{ return r.blob(); }})
+      .then(function (b) {{ imgStore[IMG_KEY] = b; img.src = URL.createObjectURL(b); }})
+      .catch(function (e) {{ console.error('value image failed', e); }});
+  }}
 
   function ring(pt, coords) {{
     // Ray casting. coords is one linear ring as [lon, lat] pairs.

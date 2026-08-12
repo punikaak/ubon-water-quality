@@ -68,8 +68,12 @@ PROVINCE_GLOB = "*Province*.zip"
 DISTRICT_GLOB = "*Amphoe*.zip"
 
 DST_CRS = "EPSG:4326"
-PROVINCES_OUT = "thailand_provinces.geojson"
-DISTRICTS_OUT = "thailand_districts.geojson"
+# Written into static/ so Streamlit serves them over HTTP as well as reading
+# them - the map fetches them by URL rather than carrying them inline. See
+# geo_boundary.STATIC_DIR.
+STATIC_DIR = "static"
+PROVINCES_OUT = os.path.join(STATIC_DIR, "thailand_provinces.geojson")
+DISTRICTS_OUT = os.path.join(STATIC_DIR, "thailand_districts.geojson")
 
 # One tolerance, in degrees, for every feature in both layers. ~110m.
 #
@@ -399,6 +403,7 @@ def build_provinces(layer):
 
 
 def write(path, collection):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(collection, f, ensure_ascii=False)
     kb = os.path.getsize(path) / 1024

@@ -18,6 +18,7 @@ import datetime as dt
 import html
 import io
 import json
+import os
 
 import altair as alt
 import folium
@@ -1110,25 +1111,6 @@ def province_history():
     return pd.DataFrame(rows)
 
 
-def load_provinces_for_display():
-    """Thailand province outlines, as cached from Province Shapefile.zip.
-
-    This used to re-simplify every province to ~2km before handing them to
-    Leaflet, to keep down what streamlit-folium reserialises on each rerun.
-    That step is gone: it was destroying the detail it was meant to be
-    cheaply approximating. On Ubon it moved the outline by up to 2.2km,
-    nearly as far as the entirely different OpenStreetMap boundary sat from
-    it (3.4km) - so switching to the local shapefile made no visible
-    difference at all until this was removed.
-
-    The cache is written at a tolerance chosen for what is actually drawn -
-    fine for Ubon, proportional to each province's own size elsewhere (see
-    import_shapefiles) - so there is nothing left here to do.
-    """
-    return geo.load_thailand_provinces()
-
-
-@st.cache_data(ttl=3600, show_spinner="Loading streamflow gauges...")
 def load_level_history(start, end, lead_days=0):
     """Daily Mun River stage over [start, end] as a tidy DataFrame.
 
@@ -1306,8 +1288,28 @@ def _drop_admin_word(value, label):
 VALUE_PNG_MAX_NTU = 1400.0
 
 
+def static_png(name, png_bytes):
+    """Write a PNG into static/ and return the URL Streamlit serves it at.
+
+    Images referenced by URL rather than inlined as a data: URI. The colour
+    overlay and the hidden value image are ~2MB together, which base64 inflates
+    to ~2.7MB, and streamlit_folium re-sends the whole map on every rerun - so
+    that was paid again on each date change even when returning to a date the
+    browser had already seen. As files they are cached per date instead.
+
+    Written once and left: same date, same bytes, so an existing file is
+    already correct. Twelve dates is ~24MB of disk, which the container has.
+    """
+    os.makedirs(geo.STATIC_DIR, exist_ok=True)
+    path = os.path.join(geo.STATIC_DIR, name)
+    if not os.path.exists(path) or os.path.getsize(path) != len(png_bytes):
+        with open(path, "wb") as f:
+            f.write(png_bytes)
+    return geo.static_url(path)
+
+
 @st.cache_data(show_spinner=False)
-def value_png_data_uri(path):
+def value_png_url(path):
     """The turbidity values as a hidden PNG, for client-side readout.
 
     Why an image and not vector cells. The obvious way to make each pixel
@@ -1339,7 +1341,8 @@ def value_png_data_uri(path):
     buf = io.BytesIO()
     Image.fromarray(np.dstack([grey, alpha]), mode="LA").save(
         buf, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return static_png(f"value_{stem}.png", buf.getvalue())
 
 
 def station_popup_html(code, predicted_ntu, measured_ntu, cls):
@@ -1757,40 +1760,43 @@ def district_label_points(name_field, province=FOCUS_PROVINCE):
 WATER_PANE = "waterpane"
 folium.map.CustomPane(WATER_PANE, z_index=350, pointer_events=False).add_to(fmap)
 
-water_def = None
-try:
-    water_layer = folium.GeoJson(
-        geo.load_water(), name="Water",
-        pane=WATER_PANE,
-        style_function=lambda f: {
-            "color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.4,
-            "fill": True, "fillColor": WATER_FILL_COLOR,
-            "fillOpacity": WATER_FILL_OPACITY,
-        },
-        show=True,
-    )
-    water_layer.add_to(fmap)
-    water_def = {"key": "water", "label": T["water_label"],
-                 "layer": water_layer, "default_on": True,
-                 "title": T["water_source"]}
-except FileNotFoundError:
-    pass
+# Fetched by the browser rather than embedded - 7.9MB of wetland polygons that
+# never change with the date. See map_controls.add_geojson_from_url.
+water_layer = folium.FeatureGroup(name="Water", show=True)
+water_layer.add_to(fmap)
+map_controls.add_geojson_from_url(
+    fmap, water_layer, geo.static_url(geo.WATER_CACHE),
+    style={"color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.4,
+           "fill": True, "fillColor": WATER_FILL_COLOR,
+           "fillOpacity": WATER_FILL_OPACITY},
+    pane=WATER_PANE,
+)
+water_def = {"key": "water", "label": T["water_label"],
+             "layer": water_layer, "default_on": True,
+             "title": T["water_source"]}
 
 district_def = None
 try:
-    districts_geojson = geo.load_districts()
     # Outlines and name labels travel together in one FeatureGroup, so the
     # rail's existing District button switches both: labels floating over a
     # map with no boundaries under them would read as loose noise.
+    #
+    # The outlines are fetched by the browser (5.9MB that never changes with
+    # the date); the 25 labels are generated here, being a few KB.
     district_layer = folium.FeatureGroup(name="Districts", show=True)
-    folium.GeoJson(
-        districts_geojson, name="District boundaries",
+    # add_to BEFORE add_geojson_from_url, as with the water and province
+    # layers. folium emits every child's JS in the order the children were
+    # added, so a fetch script registered first would run before the
+    # `var district_layer = L.featureGroup(...)` it assigns into.
+    district_layer.add_to(fmap)
+    map_controls.add_geojson_from_url(
+        fmap, district_layer, geo.static_url(geo.DISTRICTS_CACHE),
         # Solid, not dashed: dashes on 930 outlines are noise at any zoom that
         # shows more than a province or two.
-        style_function=lambda f: {"color": DISTRICT_LINE_COLOR, "weight": 0.8,
-                                   "fill": False, "fillOpacity": 0},
-        tooltip=folium.GeoJsonTooltip(fields=[DISTRICT_NAME_FIELD], aliases=[""]),
-    ).add_to(district_layer)
+        style={"color": DISTRICT_LINE_COLOR, "weight": 0.8,
+               "fill": False, "fillOpacity": 0},
+        tooltip_field=DISTRICT_NAME_FIELD,
+    )
     for lat, lon, label, rank in district_label_points(DISTRICT_NAME_FIELD):
         folium.Marker(
             location=[lat, lon],
@@ -1803,53 +1809,50 @@ try:
                      f'style="{DISTRICT_LABEL_CSS}">{label}</div>',
             ),
         ).add_to(district_layer)
-    district_layer.add_to(fmap)
     district_def = {"key": "district", "label": T["district_label"], "layer": district_layer, "default_on": True}
 except FileNotFoundError:
     pass
 
-# --- All Thailand provinces, Ubon Ratchathani highlighted ---
-province_def = None
-try:
-    provinces_geojson = load_provinces_for_display()
+# --- All Thailand provinces, Ubon Ratchathani highlighted. Fetched by the
+# browser like the districts; the Ubon-last ordering that keeps its highlight
+# on top is done there too (see add_geojson_from_url's focus_* arguments). ---
+province_layer = folium.FeatureGroup(name="Provinces", show=True)
+province_layer.add_to(fmap)
+map_controls.add_geojson_from_url(
+    fmap, province_layer, geo.static_url(geo.THAILAND_PROVINCES_CACHE),
+    # fill:False (not just fillOpacity:0) - otherwise the invisible fill still
+    # counts as "painted" for hit-testing and the whole province polygon
+    # (which covers every station) swallows clicks meant for the markers
+    # underneath it.
+    #
+    # weight 1.4 rather than 1: with the district layer on, a province line the
+    # same width as its own subdivisions stops reading as the higher level.
+    style={"color": PROVINCE_LINE_COLOR, "weight": 1.4,
+           "fill": False, "fillOpacity": 0},
+    tooltip_field=PROVINCE_NAME_FIELD,
+    focus_field="ADM1_NAME", focus_value=FOCUS_PROVINCE,
+    focus_style={"color": PROVINCE_FOCUS_COLOR, "weight": 3,
+                 "fill": False, "fillOpacity": 0},
+)
+province_def = {"key": "province", "label": T["province_label"],
+                "layer": province_layer, "default_on": True}
 
-    # Ubon last, so its highlight is painted over the other provinces' lines
-    # as well as over the districts. Sorted into a new dict rather than
-    # reordered in place: the loaded GeoJSON is an lru_cached object shared
-    # with the rest of the app, and mutating it would outlive this render.
-    provinces_geojson = dict(
-        provinces_geojson,
-        features=sorted(provinces_geojson["features"],
-                        key=lambda f: f["properties"].get("ADM1_NAME") == FOCUS_PROVINCE),
-    )
+@st.cache_data(show_spinner=False)
+def colour_png_url(path, lang):
+    """The turbidity overlay as a URL, not an inline data: URI.
 
-    def province_style(feature):
-        is_focus = feature["properties"].get("ADM1_NAME") == FOCUS_PROVINCE
-        return {
-            "color": PROVINCE_FOCUS_COLOR if is_focus else PROVINCE_LINE_COLOR,
-            # 1.4 rather than 1 for the others: with the district layer on,
-            # a province line the same width as its own subdivisions stops
-            # reading as the higher level.
-            "weight": 3 if is_focus else 1.4,
-            # fill:False (not just fillOpacity:0) - otherwise the invisible
-            # fill still counts as "painted" for hit-testing and the whole
-            # province polygon (which covers every station) swallows clicks
-            # meant for the markers underneath it.
-            "fill": False,
-            "fillOpacity": 0,
-        }
+    Same reason as value_png_url - see static_png. `lang` is in the cache key
+    only because the class palette is language-independent today and this
+    would silently serve a stale image if that ever stopped being true.
+    """
+    turb, mask, bnds = pc.load_display(path)
+    rgba = turbidity_overlay_rgba(turb, mask, bnds)
+    buf = io.BytesIO()
+    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=False)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return static_png(f"turb_{stem}.png", buf.getvalue())
 
-    province_layer = folium.GeoJson(
-        provinces_geojson, name="Provinces", style_function=province_style,
-        tooltip=folium.GeoJsonTooltip(fields=[PROVINCE_NAME_FIELD], aliases=[""]),
-        show=True,
-    )
-    province_layer.add_to(fmap)
-    province_def = {"key": "province", "label": T["province_label"], "layer": province_layer, "default_on": True}
-except FileNotFoundError as e:
-    st.info(str(e))
 
-overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask, bounds)
 # Added after the water layer and the boundaries, so it draws over them:
 # Leaflet paints in insertion order, and this is the reading the map exists
 # to show.
@@ -1858,10 +1861,17 @@ overlay_rgba = turbidity_overlay_rgba(turbidity_map, valid_mask, bounds)
 # multiply, so the old 0.9 here on top of 217/255 there left the reading at
 # 76% and the water layer showing through it.
 turbidity_layer = folium.raster_layers.ImageOverlay(
-    image=overlay_rgba,
+    # A 1x1 transparent placeholder, replaced below. folium reads a plain
+    # string as a FILE PATH and tries to open it, so a site-relative URL
+    # cannot be passed to the constructor - but its template renders
+    # `this.url` verbatim, so assigning afterwards is what gets the browser to
+    # fetch (and cache) the image instead of carrying it inline.
+    image="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+          "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
     bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
     opacity=1, name="Turbidity", show=True,
 )
+turbidity_layer.url = colour_png_url(picked_path, LANG)
 turbidity_layer.add_to(fmap)
 turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": turbidity_layer, "default_on": True}
 
@@ -1869,7 +1879,7 @@ station_layer.add_to(fmap)
 
 # --- Tap-to-read, entirely client-side. See map_controls.add_pixel_readout.
 map_controls.add_pixel_readout(
-    fmap, value_png_data_uri(picked_path), bounds,
+    fmap, value_png_url(picked_path), bounds,
     {
         "classes": [{"max": c["max"], "color": c["color"], "label": c["label"]}
                     for c in style.CLASSES],

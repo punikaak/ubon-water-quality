@@ -70,3 +70,5 @@ __pycache__/
 # Shapefile.zip". Blanket rather than by name, so a re-zipped or renamed drop
 # cannot be committed by accident.
 *.zip
+static/turb_*.png
+static/value_*.png

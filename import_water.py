@@ -52,7 +52,8 @@ from import_shapefiles import ZippedShapefile, to_wgs84
 ZIP_GLOB = "*Stream*.zip"
 MEMBERS = ("Wetland_Central.shp", "Wetland_East.shp", "Wetland_North.shp",
            "Wetland_Northeast.shp", "Wetland_South.shp", "Wetland_West.shp")
-WATER_OUT = "thailand_water.geojson"
+# static/ so Streamlit serves it over HTTP too - see geo_boundary.STATIC_DIR.
+WATER_OUT = os.path.join("static", "thailand_water.geojson")
 
 # Metres, applied in the source CRS before reprojection - the archive is UTM
 # zone 47N, so the tolerance is a real ground distance rather than a fraction
@@ -149,6 +150,7 @@ def main() -> int:
           f"{len(MEMBERS)} regional layers\n")
 
     collection = build(zip_path)
+    os.makedirs(os.path.dirname(WATER_OUT) or ".", exist_ok=True)
     with open(WATER_OUT, "w", encoding="utf-8") as f:
         json.dump(collection, f, ensure_ascii=False)
     mb = os.path.getsize(WATER_OUT) / 1e6

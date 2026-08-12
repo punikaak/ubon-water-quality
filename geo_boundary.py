@@ -38,9 +38,33 @@ NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
 STATION_LOCATIONS_CACHE = "station_locations.json"
 
-THAILAND_PROVINCES_CACHE = "thailand_provinces.geojson"
-DISTRICTS_CACHE = "thailand_districts.geojson"
-WATER_CACHE = "thailand_water.geojson"
+# These live under static/ so Streamlit serves them over HTTP as well as
+# reading them here (enableStaticServing in .streamlit/config.toml). The map
+# fetches them by URL instead of carrying them inline, which is what keeps a
+# date change from re-sending tens of megabytes - see
+# map_controls.add_geojson_from_url. One copy, two ways in.
+STATIC_DIR = "static"
+THAILAND_PROVINCES_CACHE = os.path.join(STATIC_DIR, "thailand_provinces.geojson")
+DISTRICTS_CACHE = os.path.join(STATIC_DIR, "thailand_districts.geojson")
+WATER_CACHE = os.path.join(STATIC_DIR, "thailand_water.geojson")
+
+
+def static_url(path: str) -> str:
+    """The URL Streamlit serves a file in STATIC_DIR at, with a version stamp.
+
+    The stamp is size and mtime, and it is what makes the URL safe to cache
+    hard. Streamlit's static handler sends an ETag but answers a matching
+    If-None-Match with 200 and the whole body again - so revalidation buys
+    nothing and the file was being re-downloaded on every rerun. Callers pair
+    this with cache:'force-cache', which skips revalidation entirely; a
+    rebuilt file changes size or mtime, changes the URL, and is fetched fresh.
+    """
+    name = os.path.basename(path)
+    try:
+        st = os.stat(path)
+        return f"/app/static/{name}?v={st.st_size}-{int(st.st_mtime)}"
+    except OSError:
+        return f"/app/static/{name}"
 ROADS_CACHE = "ubon_roads.json"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 UBON_RELATION_ID = 1908830  # OSM relation id, used only to scope the road query
