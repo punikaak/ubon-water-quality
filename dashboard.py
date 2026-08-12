@@ -95,6 +95,10 @@ DISTRICT_LINE_COLOR = "#c2c8d0"
 WATER_FILL_COLOR = "#3a6c96"
 WATER_LINE_COLOR = "#2b5478"
 WATER_FILL_OPACITY = 0.62
+# What WATER_FILL_COLOR at WATER_FILL_OPACITY composites to over the Light
+# basemap - the colour the reader actually sees. Used for the legend swatch,
+# which sits on white and so cannot borrow the map's own blending.
+WATER_LEGEND_COLOR = "#7e9eb8"
 
 # Fill for a district with no water pixel on the selected date, in the sidebar
 # choropleth. Deliberately outside the turbidity ramp: any colour from the
@@ -165,6 +169,7 @@ TRANSLATIONS = {
         "legend_province": "Province boundary",
         "legend_district": "District boundary",
         "legend_pcd_stations": "PCD stations",
+        "legend_water": "Water",
         "legend_caption": "General reference scale for this dashboard, not an official Thai PCD standard.",
         "legend_label": "Legend",
         "pcd_stations_label": "PCD Stations",
@@ -267,6 +272,7 @@ TRANSLATIONS = {
         "legend_province": "ขอบเขตจังหวัด",
         "legend_district": "ขอบเขตอำเภอ",
         "legend_pcd_stations": "สถานีคุณภาพน้ำ",
+        "legend_water": "แหล่งน้ำ",
         "legend_caption": "ค่าอ้างอิงทั่วไปสำหรับแดชบอร์ดนี้ ไม่ใช่มาตรฐานทางการของกรมควบคุมมลพิษ",
         "legend_label": "คำอธิบาย",
         "pcd_stations_label": "สถานีคุณภาพน้ำ",
@@ -967,6 +973,10 @@ def build_legend_html():
         f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{PROVINCE_LINE_COLOR}"></span>{T["legend_province"]}</div>'
         f'<div class="wq-legend-item"><span class="wq-legend-line" style="background:{DISTRICT_LINE_COLOR};height:2px"></span>{T["legend_district"]}</div>'
         f'<div class="wq-legend-item"><span class="wq-legend-circle" style="border:2px solid {STATION_STROKE_COLOR}"></span>{T["legend_pcd_stations"]}</div>'
+        # WATER_LEGEND_COLOR, not WATER_FILL_COLOR: the layer is drawn at 62%
+        # over a pale basemap, so the raw fill would put a swatch here noticeably
+        # darker than anything on the map. This is what that fill composites to.
+        f'<div class="wq-legend-item"><span class="wq-legend-swatch" style="background:{WATER_LEGEND_COLOR}"></span>{T["legend_water"]}</div>'
     )
     turbidity_rows = []
     prev_max = 0
