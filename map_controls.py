@@ -150,19 +150,22 @@ _CSS = """
    top of the map (see dashboard.py's .page-header), so this rail has to
    clear its height instead of sitting underneath/behind it. */
 .wq-rail { position:fixed; top:75px; right:16px; z-index:1000;
-    display:flex; flex-direction:column; align-items:center; gap:6px; background:#fff;
-    border-radius:999px; box-shadow:0 2px 14px rgba(0,0,0,0.22); padding:8px 4px;
+    display:flex; flex-direction:column; align-items:center; gap:8px; background:#fff;
+    border-radius:999px; box-shadow:0 2px 14px rgba(0,0,0,0.22); padding:10px 6px;
     font-family:__WQ_FONT__; }
-.wq-icon-btn { display:flex; flex-direction:column; align-items:center; gap:2px; width:38px;
+.wq-icon-btn { display:flex; flex-direction:column; align-items:center; gap:3px; width:48px;
     border:none; background:none; padding:0; cursor:pointer; }
-.wq-icon-circle { width:24px; height:24px; border-radius:50%; display:flex; align-items:center;
+.wq-icon-circle { width:31px; height:31px; border-radius:50%; display:flex; align-items:center;
     justify-content:center; color:#fff; background:var(--wq-color); transition:background .15s,opacity .15s; }
-.wq-icon-circle svg { width:13px; height:13px; }
+.wq-icon-circle svg { width:17px; height:17px; }
 .wq-icon-btn:not(.wq-on) .wq-icon-circle { background:#c7ccd2; }
 .wq-icon-btn.wq-active .wq-icon-circle { box-shadow:0 0 0 2px rgba(30,58,74,0.25); }
-.wq-icon-label { font-size:0.56rem; font-weight:600; color:#3a4450; text-align:center; line-height:1.1; }
+.wq-icon-label { font-size:0.70rem; font-weight:600; color:#3a4450; text-align:center; line-height:1.1; }
 .wq-icon-btn:not(.wq-on) .wq-icon-label { color:#a9b1ba; }
-.wq-panel { position:fixed; top:75px; right:60px; z-index:1000;
+/* right:76px = the rail's 60px footprint (48px button + 6px padding each
+   side) plus its own 16px inset. It was 60px for the narrower rail; leaving
+   it there would open every fly-out underneath the rail it belongs to. */
+.wq-panel { position:fixed; top:75px; right:76px; z-index:1000;
     width:230px; background:#fff; border-radius:12px; box-shadow:0 2px 14px rgba(0,0,0,0.2);
     padding:14px; display:none; font-family:__WQ_FONT__; max-height:70vh; overflow-y:auto; }
 /* Leaflet's own zoom control, top of the bottom-left stack. The other two
@@ -181,7 +184,14 @@ _CSS = """
 .leaflet-bottom.leaflet-left { position:fixed !important; bottom:190px !important; left:16px !important; }
 .leaflet-control-zoom { border-radius:12px !important; overflow:hidden;
     box-shadow:0 2px 14px rgba(0,0,0,0.22) !important; border:none !important; }
-.leaflet-control-zoom a { font-family:__WQ_FONT__ !important; }
+/* Sized to match the layer rail's buttons rather than left at Leaflet's
+   default 30px. The rail's icon circles are 31px, but its buttons carry a
+   label underneath and so read as a ~45px block; a bare 30px square beside
+   that looks like a smaller class of control, which is exactly the
+   complaint. 38px sits between the two and matches by weight. */
+.leaflet-control-zoom a { font-family:__WQ_FONT__ !important;
+    width:38px !important; height:38px !important; line-height:38px !important;
+    font-size:26px !important; }
 /* The OSM credit stays - ODbL requires attribution - but it does not need to
    be a full-contrast bar competing with the data, so it is toned down.
    position:fixed for the same reason as the zoom corner above: Leaflet
@@ -236,6 +246,12 @@ _CSS = """
     padding-right:26px; margin-bottom:13px; }
 .wq-pop-group { margin-top:13px; }
 .wq-pop-group:first-of-type { margin-top:0; }
+/* A popup with no title starts straight into a row, which then runs under the
+   close button - the clearance used to come from .wq-pop-title's padding.
+   `> .wq-pop-group:first-child` matches only when the group really is the
+   first thing in the popup, so titled popups are untouched. */
+.leaflet-popup-content > .wq-pop-group:first-child .wq-pop-row:first-child {
+    padding-right:26px; }
 .wq-pop-row b { color:#12161c; font-weight:700; }
 /* The level, as a filled pill in its turbidity class colour. Dark text on
    every class rather than a per-class text colour: the ramp runs from pale
@@ -244,6 +260,10 @@ _CSS = """
 .wq-pop-pill { display:inline-block; padding:2px 10px; border-radius:999px;
     font-size:0.72rem; font-weight:700; color:#12161c; white-space:nowrap;
     vertical-align:1px; }
+/* The pixel readout puts the pill on its own line under its label rather than
+   beside it, so the number is not competing with the wording for the line. */
+.wq-pop-pill-row { margin-top:6px; }
+.wq-pop-pill-row .wq-pop-pill { font-size:0.8rem; padding:3px 12px; }
 .wq-pop-note { margin-top:12px; font-size:0.7rem; color:#9aa3ad; line-height:1.4; }
 
 /* ------------------------------------------------- information button ---
@@ -254,12 +274,16 @@ _CSS = """
    derived. Measured at 1500x950: the zoom box spans 26-56px from the left
    and its top edge sits 260px up from the bottom, so 270px clears it by 10
    and 24px centres a 34px circle on its 30px column. */
-.wq-info-fab { position:fixed; left:24px; bottom:270px; z-index:1000;
-    width:34px; height:34px; padding:0; border:none; border-radius:50%;
+/* left:25px centres a 40px circle on the zoom column, which now spans 26-64px
+   (38px wide at the corner's 26px inset). bottom:280px, not 270: the zoom
+   pair grew to 76px tall and its top edge is now 266px up, so the old offset
+   left only 4px of gap. */
+.wq-info-fab { position:fixed; left:25px; bottom:290px; z-index:1000;
+    width:40px; height:40px; padding:0; border:none; border-radius:50%;
     cursor:pointer; display:flex; align-items:center; justify-content:center;
     background:#fff; color:#12161c; box-shadow:0 2px 14px rgba(0,0,0,0.22);
     transition:background .15s; }
-.wq-info-fab svg { width:19px; height:19px; }
+.wq-info-fab svg { width:22px; height:22px; }
 .wq-info-fab:hover { background:#eef1f4; }
 
 /* --------------------------------------------------------- info modal ---
@@ -310,12 +334,14 @@ _CSS = """
    pinned to both edges rather than a fixed 230px, which would otherwise
    leave them wider than the gap they open into. */
 @media (max-width: 640px) {
-  .wq-rail { top:58px; right:8px; padding:5px 3px; gap:3px; }
-  .wq-icon-btn { width:31px; }
-  .wq-icon-circle { width:21px; height:21px; }
-  .wq-icon-circle svg { width:11px; height:11px; }
-  .wq-icon-label { font-size:0.47rem; }
-  .wq-panel { top:58px; right:46px; left:8px; width:auto; max-height:52vh; padding:11px; }
+  .wq-rail { top:58px; right:8px; padding:7px 5px; gap:5px; }
+  .wq-icon-btn { width:39px; }
+  .wq-icon-circle { width:27px; height:27px; }
+  .wq-icon-circle svg { width:14px; height:14px; }
+  .wq-icon-label { font-size:0.59rem; }
+  /* right:46px was the gap the old 31px-wide rail left; the rail is 39px
+     now, so a panel opening at the old inset would sit under it. */
+  .wq-panel { top:58px; right:56px; left:8px; width:auto; max-height:52vh; padding:11px; }
   .wq-row { font-size:0.78rem; padding:6px 5px; }
   .wq-legend-item { font-size:0.76rem; }
   /* Sits above the sidebar button (page-side, bottom:126px), which in turn
@@ -325,8 +351,12 @@ _CSS = """
   .leaflet-bottom.leaflet-left { bottom:218px !important; left:10px !important; }
   /* Same relationship to the zoom control as on desktop, re-measured for
      this breakpoint: zoom spans 20-50px from the left with its top 288px up. */
-  .wq-info-fab { left:20px; bottom:297px; width:30px; height:30px; }
-  .wq-info-fab svg { width:17px; height:17px; }
+  .wq-info-fab { left:19px; bottom:310px; width:36px; height:36px; }
+  .wq-info-fab svg { width:20px; height:20px; }
+  /* Zoom matched to the phone rail (27px circles) the same way the desktop
+     pair is matched to its 31px ones. */
+  .leaflet-control-zoom a { width:34px !important; height:34px !important;
+      line-height:34px !important; font-size:24px !important; }
   /* Taller timeline bar here (two rows), so the credit still needs lifting
      further than on desktop even though the bar now sits at the same margin. */
   .leaflet-bottom.leaflet-right { bottom:170px !important; }
@@ -357,7 +387,7 @@ _CSS = """
      behind the page header, which the zoom control is already close to. Sit
      beside it instead, bottom edges aligned (258px corner offset + the
      corner's own 10px padding). */
-  .wq-info-fab { left:58px; bottom:268px; }
+  .wq-info-fab { left:70px; bottom:268px; }
   .wq-modal { padding:78px 12px 128px 12px; }
   .wq-modal-head { padding:10px 14px 8px 14px; }
   .wq-modal-body { padding:10px 14px 14px 14px; }
@@ -559,6 +589,153 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
     # (see generate_leaflet_string in streamlit_folium), not the Figure's
     # header/html/script collections - a script added to get_root() is
     # silently dropped.
+    _RawScript(js).add_to(fmap)
+
+
+def add_pixel_readout(fmap, value_png, bounds, config, district_layer=None):
+    """Tap anywhere on the raster and get that cell's reading, with no rerun.
+
+    Everything needed is already in the browser, so nothing goes back to
+    Python:
+
+      - the VALUE of the cell comes from `value_png`, a hidden image sampled
+        with a canvas (see dashboard.value_png_data_uri for the encoding and
+        for why this is not a polygon layer),
+      - the DISTRICT comes from the boundary layer already drawn on the map -
+        the geometry is there, it just was not being asked this question.
+
+    The alternative was st_folium's click return, which is a full Streamlit
+    rerun: measured at 6.5s per tap once the double-rerun was fixed, because
+    a rerun re-serialises every layer including 4,661 water polygons.
+
+    `bounds` is the raster's own extent and the sampling is linear in
+    latitude, matching how the array is indexed in Python - NOT the Web
+    Mercator remap the colour overlay gets. That remap exists to fix where
+    the image is DRAWN; the values are still stored on the plain lat/lon grid.
+    """
+    cfg = dict(config)
+    cfg.update({
+        "west": bounds.left, "east": bounds.right,
+        "south": bounds.bottom, "north": bounds.top,
+    })
+    js = f"""
+(function () {{
+  var map = {fmap.get_name()};
+  var CFG = {json.dumps(cfg, ensure_ascii=False)};
+  var districts = {district_layer.get_name() if district_layer else "null"};
+
+  // Sample the hidden value image through a canvas. Drawn once, at natural
+  // size, so a tap is one getImageData of a single pixel.
+  var canvas = document.createElement('canvas'), ctx = null;
+  var img = new Image();
+  img.onload = function () {{
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    ctx = canvas.getContext('2d', {{willReadFrequently: true}});
+    ctx.drawImage(img, 0, 0);
+  }};
+  img.src = {json.dumps(value_png)};
+
+  function ring(pt, coords) {{
+    // Ray casting. coords is one linear ring as [lon, lat] pairs.
+    var inside = false;
+    for (var i = 0, j = coords.length - 1; i < coords.length; j = i++) {{
+      var xi = coords[i][0], yi = coords[i][1];
+      var xj = coords[j][0], yj = coords[j][1];
+      if (((yi > pt.lat) !== (yj > pt.lat)) &&
+          (pt.lng < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }}
+    return inside;
+  }}
+
+  function inGeometry(pt, geom) {{
+    // Outer ring counts, holes subtract - a lake-shaped hole in an amphoe
+    // should not report that amphoe.
+    var polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    for (var p = 0; p < polys.length; p++) {{
+      if (!ring(pt, polys[p][0])) continue;
+      var hole = false;
+      for (var h = 1; h < polys[p].length; h++) {{
+        if (ring(pt, polys[p][h])) {{ hole = true; break; }}
+      }}
+      if (!hole) return true;
+    }}
+    return false;
+  }}
+
+  function findPlace(latlng) {{
+    if (!districts) return null;
+    var hit = null;
+    // Bounding box first: 930 amphoe, some with thousands of vertices, so the
+    // exact test only runs on the handful whose box contains the point.
+    (function walk(layer) {{
+      if (hit) return;
+      if (layer.eachLayer) layer.eachLayer(walk);
+      if (!layer.feature || !layer.getBounds) return;
+      if (!layer.getBounds().contains(latlng)) return;
+      if (inGeometry(latlng, layer.feature.geometry)) hit = layer.feature.properties;
+    }})(districts);
+    return hit;
+  }}
+
+  function classify(v) {{
+    for (var i = 0; i < CFG.classes.length; i++) {{
+      if (v <= CFG.classes[i].max) return CFG.classes[i];
+    }}
+    return CFG.classes[CFG.classes.length - 1];
+  }}
+
+  function esc(s) {{
+    return String(s).replace(/[&<>"]/g, function (c) {{
+      return {{'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}}[c];
+    }});
+  }}
+
+  map.on('click', function (e) {{
+    if (!ctx) return;
+    var lat = e.latlng.lat, lng = e.latlng.lng;
+    if (lat < CFG.south || lat > CFG.north || lng < CFG.west || lng > CFG.east) return;
+    var col = Math.floor((lng - CFG.west) / (CFG.east - CFG.west) * canvas.width);
+    var row = Math.floor((CFG.north - lat) / (CFG.north - CFG.south) * canvas.height);
+    col = Math.min(Math.max(col, 0), canvas.width - 1);
+    row = Math.min(Math.max(row, 0), canvas.height - 1);
+    var px = ctx.getImageData(col, row, 1, 1).data;   // [grey, grey, grey, alpha]
+
+    var place = findPlace(e.latlng);
+    var rows = '';
+    if (place) {{
+      if (place[CFG.districtField]) rows += '<div class="wq-pop-row"><b>' +
+        CFG.districtLabel + ':</b> ' + esc(place[CFG.districtField]) + '</div>';
+      if (place[CFG.provinceField]) rows += '<div class="wq-pop-row"><b>' +
+        CFG.provinceLabel + ':</b> ' + esc(place[CFG.provinceField]) + '</div>';
+    }}
+    var placeBlock = rows ? '<div class="wq-pop-group">' + rows + '</div>' : '';
+
+    var body;
+    if (px[3] > 0) {{
+      var frac = px[0] / 255;
+      var v = frac * frac * CFG.maxNtu;          // inverse of the sqrt encoding
+      var c = classify(v);
+      // One statement, not two. The value and its class were separate rows
+      // saying the same number twice; the pill carries both.
+      body = '<div class="wq-pop-group">' +
+        '<div class="wq-pop-row"><b>' + CFG.predictedLabel + ':</b></div>' +
+        '<div class="wq-pop-pill-row">' +
+        '<span class="wq-pop-pill" style="background:' + c.color + '">' +
+        v.toFixed(1) + ' NTU &middot; ' + esc(c.label) + '</span></div></div>';
+    }} else {{
+      body = '<div class="wq-pop-group"><div class="wq-pop-row">' +
+        CFG.noWater + '</div></div>';
+    }}
+
+    L.popup({{maxWidth: 300, minWidth: 230}})
+      .setLatLng(e.latlng)
+      .setContent(placeBlock + body +
+                  '<div class="wq-pop-note">' + CFG.note + '<br>' +
+                  lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>')
+      .openOn(map);
+  }});
+}})();
+"""
     _RawScript(js).add_to(fmap)
 
 

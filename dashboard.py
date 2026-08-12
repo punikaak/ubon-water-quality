@@ -16,6 +16,7 @@ Run with:  streamlit run dashboard.py
 import base64
 import datetime as dt
 import html
+import io
 import json
 
 import altair as alt
@@ -24,6 +25,7 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import streamlit as st
+from PIL import Image
 import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
@@ -63,22 +65,36 @@ DISTRICT_LINE_COLOR = "#c2c8d0"
 
 # Water layer (Thailand's wetland areas - see import_water.py).
 #
-# Navy, and the shade was measured rather than picked. The lowest turbidity
-# class "Excellent" is #A2C0FC - itself a light blue - so a blue water layer
-# risks reading as a turbidity value. What matters is the COMPOSITED colour,
-# not the swatch: a translucent fill blends toward the pale basemap, and royal
-# blue at 45% opacity lands 14.2 dLab from Excellent, which reads as the same
-# colour, despite scoring 46.9 as a swatch.
+# Quiet steel blue, measured rather than picked. This layer is the bed the
+# reading sits in; the turbidity ramp on top is the thing being read, and a
+# heavy water fill competes with it for attention even though it cannot cover
+# it (the raster is drawn after, and opaque).
 #
-# At 75% this composites to #4F77A4: 29.3 dLab from every turbidity class, and
-# 53.2 from the basemap canvas - so it is distinct from the ramp AND plainly
-# visible, rather than distinct by being too faint to see.
+# What matters is the COMPOSITED colour, not the swatch - a translucent fill
+# blends toward the pale canvas. And fading it is not simply safe: the lowest
+# turbidity class "Excellent" is #A2C0FC, itself a light blue, so the paler
+# the water gets the CLOSER it moves to that class. Measured in CIE Lab
+# against the classes actually painted on the map (the "unavailable" grey
+# lives only in the sidebar choropleth, so it does not constrain this):
 #
-# Opacity this high is safe because the turbidity raster is drawn AFTER this
-# layer and therefore over it; the water can never mask a reading.
-WATER_FILL_COLOR = "#1a4e8a"
-WATER_LINE_COLOR = "#123a68"
-WATER_FILL_OPACITY = 0.75
+#     fill      op   composite   vs ramp   vs canvas
+#     #1A4E8A  .75     #4F76A4      29.5        53.7   <- loud
+#     #1A4E8A  .70     #597EA9      26.9        50.0
+#     #3A6C96  .62     #7E9EB8      22.8        35.0   <- this
+#     #5B87A8  .50     #A4BBCC      23.3        22.6   <- too faint
+#     #5B87A8  .35     #BACBD7      26.2        15.6   <- invisible
+#
+# There is no setting that is both far from the ramp and strongly visible;
+# the two constraints pull opposite ways, so this takes a point between them.
+#
+# Note the ramp column barely moves across this range while the canvas column
+# doubles - so "darker" costs almost nothing in confusability here, and the
+# earlier worry about a heavy fill was really the z-order bug below, not the
+# shade. The raster is opaque and now genuinely on top, so this cannot dim a
+# reading whatever its opacity.
+WATER_FILL_COLOR = "#3a6c96"
+WATER_LINE_COLOR = "#2b5478"
+WATER_FILL_OPACITY = 0.62
 
 # Fill for a district with no water pixel on the selected date, in the sidebar
 # choropleth. Deliberately outside the turbidity ramp: any colour from the
@@ -125,10 +141,10 @@ DEFAULT_BASEMAP = "Light"
 COLOR_PREDICTED = "#2a78d6"
 COLOR_ACTUAL = "#eb6834"
 GAUGE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
-# Averaging windows offered for the streamflow chart, shortest first. Rolling
-# averages rather than N-day buckets: over a 61-day range, 30-day buckets give
-# two points and a single-month view would give one, which is not a trend.
-SMOOTH_WINDOWS = [7, 14, 30]
+# Days per plotted point on the streamflow chart. 5 over a 61-day range gives
+# 12 points - enough to read a rise or fall, without the daily noise the raw
+# gauge series carries.
+BIN_DAYS = 5
 
 P = dict(
     app_bg="#ffffff", sidebar_bg="#fafbfc", text="#2b2b3a", muted="#6b7684",
@@ -170,17 +186,15 @@ TRANSLATIONS = {
         "water_level": "Water level",
         "streamflow_unavailable": "Streamflow gauge service unavailable right now.",
         "month_label": "Month",
-        "month_all": "Nov-Dec",
+        "month_all": "All",
+        "period_mean": "5-day mean",
+        "period_from": "5 days from",
         "month_nov": "Nov",
         "month_dec": "Dec",
-        "smooth_label": "Averaging window",
-        "smooth_days": "{n}-day",
-        "daily_reading": "Daily",
-        "avg_reading": "{n}-day average",
         "level_m": "Level (m)",
         "gauge": "Gauge",
         "district_ranking": "District Ranking",
-        "district_ranking_note": "Mean turbidity of water pixels within each district, highest first.",
+        "district_ranking_note": "Mean turbidity of water within each district",
         "no_districts": "District boundaries not available.",
         "no_water_pixels": "no water detected",
         "district_map_hint": "Hover or tap a district for its reading",
@@ -196,6 +210,8 @@ TRANSLATIONS = {
         "popup_subdistrict": "Subdistrict",
         "popup_district": "District",
         "popup_province": "Province",
+        "pixel_no_water": "No water detected in this pixel on this date.",
+        "pixel_note": "Value under the point, {date}.",
         "popup_predicted": "Predicted Turbidity",
         "popup_measured": "Measured Turbidity",
         "popup_level": "Turbidity Level",
@@ -272,17 +288,15 @@ TRANSLATIONS = {
         "water_level": "ระดับน้ำ",
         "streamflow_unavailable": "ไม่สามารถเชื่อมต่อระบบสถานีวัดน้ำได้ในขณะนี้",
         "month_label": "เดือน",
-        "month_all": "พ.ย.-ธ.ค.",
+        "month_all": "ทั้งหมด",
+        "period_mean": "ค่าเฉลี่ย 5 วัน",
+        "period_from": "5 วันนับจาก",
         "month_nov": "พ.ย.",
         "month_dec": "ธ.ค.",
-        "smooth_label": "ช่วงเฉลี่ย",
-        "smooth_days": "{n} วัน",
-        "daily_reading": "รายวัน",
-        "avg_reading": "เฉลี่ย {n} วัน",
         "level_m": "ระดับน้ำ (ม.)",
         "gauge": "สถานีวัดน้ำ",
         "district_ranking": "อันดับความขุ่นรายอำเภอ",
-        "district_ranking_note": "ค่าเฉลี่ยความขุ่นของพื้นที่น้ำในแต่ละอำเภอ เรียงจากมากไปน้อย",
+        "district_ranking_note": "ค่าเฉลี่ยความขุ่นของน้ำในแต่ละอำเภอ",
         "no_districts": "ไม่มีข้อมูลขอบเขตอำเภอ",
         "no_water_pixels": "ไม่พบพื้นที่น้ำ",
         "district_map_hint": "ชี้หรือแตะที่อำเภอเพื่อดูค่า",
@@ -293,6 +307,8 @@ TRANSLATIONS = {
         "popup_subdistrict": "ตำบล",
         "popup_district": "อำเภอ",
         "popup_province": "จังหวัด",
+        "pixel_no_water": "ไม่พบน้ำในพิกเซลนี้ในวันที่เลือก",
+        "pixel_note": "ค่า ณ จุดที่กด · {date}",
         "popup_predicted": "ความขุ่นที่ประเมิน",
         "popup_measured": "ความขุ่นที่ตรวจวัด",
         "popup_level": "ระดับความขุ่น",
@@ -460,11 +476,11 @@ st.markdown(
        row inside is then centered within that full width. */
     .page-header {{ position:absolute; top:20px; left:14px; right:14px; z-index:999;
         background:{HEADER_NAVY}; border-radius:10px; box-shadow:0 2px 14px rgba(0,0,0,0.28);
-        padding:10px 14px; display:flex; align-items:baseline; justify-content:center; gap:8px; }}
+        padding:14px 18px; display:flex; align-items:baseline; justify-content:center; gap:10px; }}
     /* !important: .stApp span (above) targets every span including these
        two and otherwise wins on specificity (class+type beats a bare class). */
-    .page-title {{ font-size: 0.95rem; font-weight: 700; color: #ffffff !important; }}
-    .page-subtitle {{ font-size: 0.72rem; color: #b7c4d4 !important; }}
+    .page-title {{ font-size: 1.15rem; font-weight: 700; color: #ffffff !important; }}
+    .page-subtitle {{ font-size: 0.85rem; color: #b7c4d4 !important; }}
 
     .legend-swatch {{ width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }}
 
@@ -647,10 +663,10 @@ st.markdown(
        the state it belongs to, so it looks like one button that stays put
        relative to the zoom buttons. */
     [data-testid="stSidebarCollapseButton"] {{
-        position: fixed !important; left: 314px !important; bottom: 114px !important;
-        width: 34px !important; height: 34px !important; z-index: 1002 !important; }}
+        position: fixed !important; left: 315px !important; bottom: 114px !important;
+        width: 40px !important; height: 40px !important; z-index: 1002 !important; }}
     [data-testid="stExpandSidebarButton"] {{
-        position: fixed !important; left: 20px !important; bottom: 114px !important;
+        position: fixed !important; left: 25px !important; bottom: 114px !important;
         z-index: 1002 !important; }}
     /* Once collapsed, the collapse button still exists and - being
        position:fixed - escapes the zero-width sidebar, landing right on top
@@ -661,12 +677,14 @@ st.markdown(
     [data-testid="stSidebarCollapseButton"] button,
     button[data-testid="stSidebarCollapseButton"],
     [data-testid="stExpandSidebarButton"] button,
-    /* 34px, matching the map's Information button directly above it - the two
+    /* 40px, matching the map's Information button directly above it - the two
        sit in the same bottom-left column, so a size difference between them
-       read as a mistake rather than a hierarchy. */
+       read as a mistake rather than a hierarchy. Both grew with the layer
+       rail, and the zoom pair below is 38px, so the whole column is 38-40px
+       now instead of the old 30-34px. */
     button[data-testid="stExpandSidebarButton"] {{
-        width: 34px !important; height: 34px !important; border-radius: 50% !important;
-        background: #ffffff url("{SIDEBAR_ICON}") center / 20px 20px no-repeat !important;
+        width: 40px !important; height: 40px !important; border-radius: 50% !important;
+        background: #ffffff url("{SIDEBAR_ICON}") center / 23px 23px no-repeat !important;
         box-shadow: 0 2px 10px rgba(0,0,0,0.22) !important; border: none !important;
         padding: 0 !important; }}
     [data-testid="stSidebarCollapseButton"] button:hover,
@@ -736,10 +754,10 @@ st.markdown(
 
       /* Title and subtitle stack instead of sharing a baseline - side by
          side they wrapped mid-phrase ("Mekong Water / Quality - Thailand"). */
-      .page-header {{ top:8px; left:8px; right:8px; padding:7px 11px;
-          flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:1px; }}
-      .page-title {{ font-size:0.82rem; line-height:1.2; }}
-      .page-subtitle {{ font-size:0.6rem; line-height:1.25; }}
+      .page-header {{ top:8px; left:8px; right:8px; padding:10px 13px;
+          flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:2px; }}
+      .page-title {{ font-size:0.98rem; line-height:1.2; }}
+      .page-subtitle {{ font-size:0.72rem; line-height:1.25; }}
 
       /* This was 54px, holding the bar clear of the Streamlit Cloud badge and
          owner avatar - they live in the *host* page on top of this app's
@@ -826,18 +844,18 @@ st.markdown(
          overlays the map from x=0 to x=300, so a button at left:12 sits on
          top of the sidebar's own chart; 308 puts it just past the sidebar's
          edge, the same relationship the desktop layout already uses. */
-      [data-testid="stExpandSidebarButton"] {{ left:12px !important; bottom:146px !important;
-          width:30px !important; height:30px !important; }}
-      [data-testid="stSidebarCollapseButton"] {{ left:308px !important; bottom:146px !important;
-          width:30px !important; height:30px !important; }}
-      /* 30px here, not the desktop 34: this matches both the Information
+      [data-testid="stExpandSidebarButton"] {{ left:17px !important; bottom:146px !important;
+          width:36px !important; height:36px !important; }}
+      [data-testid="stSidebarCollapseButton"] {{ left:306px !important; bottom:146px !important;
+          width:36px !important; height:36px !important; }}
+      /* 36px here, not the desktop 40: this matches both the Information
          button and Leaflet's own zoom buttons at this breakpoint, so the
          three controls in the column are one size. */
       button[data-testid="stExpandSidebarButton"],
       [data-testid="stExpandSidebarButton"] button,
       button[data-testid="stSidebarCollapseButton"],
       [data-testid="stSidebarCollapseButton"] button {{
-          width:30px !important; height:30px !important; background-size:18px 18px !important; }}
+          width:36px !important; height:36px !important; background-size:21px 21px !important; }}
     }}
     </style>
     """,
@@ -1273,6 +1291,47 @@ def _drop_admin_word(value, label):
     return v or value.strip()
 
 
+# Top of the encoded range for the hidden value image below. Above the highest
+# reading seen in the 10m composites (~1,290 NTU) with headroom.
+VALUE_PNG_MAX_NTU = 1400.0
+
+
+@st.cache_data(show_spinner=False)
+def value_png_data_uri(path):
+    """The turbidity values as a hidden PNG, for client-side readout.
+
+    Why an image and not vector cells. The obvious way to make each pixel
+    clickable is a polygon per pixel, and it does not survive contact with
+    the numbers: at the 40m display grid one date is 307,803 water cells =
+    46MB of GeoJSON, and merging same-class neighbours still leaves 47,294
+    polygons and 21.6MB. Leaflet draws each as an SVG path and stalls in the
+    tens of thousands. The PNG that draws the same information is 0.9MB.
+
+    So the picture stays a picture, and a second picture carries the numbers.
+    The reader never sees this one - JS samples it with a canvas on tap, which
+    is what makes the readout instant instead of a server round trip.
+
+    Encoding: grey = sqrt(NTU / MAX), alpha = water mask. The square root
+    spends the 256 levels where the data is - about 1 NTU per step below
+    100 NTU, coarsening to ~4 NTU near the top of the range - rather than
+    spreading them evenly over a range whose upper half is nearly empty.
+    Sized against the model, not by taste: its RMSE is 12.2 NTU, so 1-2 NTU
+    of quantisation adds 2-5% to an error that is already there, while 16-bit
+    exactness would cost another 590KB per date to state a precision the
+    model does not have.
+
+    Alpha separates "no reading" from "0 NTU", which grey alone cannot.
+    """
+    turb, mask, _bounds = pc.load_display(path)
+    scaled = np.sqrt(np.clip(turb, 0, VALUE_PNG_MAX_NTU) / VALUE_PNG_MAX_NTU)
+    grey = np.round(scaled * 255).astype(np.uint8)
+    alpha = np.where(mask, 255, 0).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(np.dstack([grey, alpha]), mode="LA").save(
+        buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def station_popup_html(code, predicted_ntu, measured_ntu, cls):
     """The card shown when a station marker is clicked: station code as the
     heading, then where it is, then its numbers.
@@ -1668,16 +1727,33 @@ def district_label_points(name_field, province=FOCUS_PROVINCE):
 # rather than the secondary detail it was when it held one province, and
 # leaving it switched off meant a visitor never saw it without hunting through
 # the rail for a toggle. ---
-# --- Water: Thailand's wetland areas, from the local archive. Added before
-# the boundaries and the raster so it sits under both - it is the ground the
-# reading sits on, and drawing it over the turbidity overlay would hide what
-# the map exists to show. ---
+# --- Water: Thailand's wetland areas, from the local archive.
+#
+# In its OWN pane, below the overlay pane, and that is load-bearing rather
+# than tidiness. Adding it first is not enough: Leaflet gives the vector <svg>
+# z-index 200 and an ImageOverlay z-index 1, both absolutely positioned inside
+# the same overlay pane - so z-index decides, not document order, and the
+# water painted OVER the turbidity raster even though the raster came later in
+# the DOM. Measured: 33,151 pixels in one viewport became a pure class colour
+# the moment the water layer was switched off, i.e. every one of them had been
+# tinted by 50% water.
+#
+# Demoting the whole overlay pane instead would drag the district and province
+# lines under the opaque raster with it, and those lines follow the rivers in
+# places - the Mun IS a district boundary along part of its length - so they
+# would vanish exactly where the water is. A pane at 350 sits above the tiles
+# and below the overlay pane, which puts water under the reading while leaving
+# the boundaries over it.
+WATER_PANE = "waterpane"
+folium.map.CustomPane(WATER_PANE, z_index=350, pointer_events=False).add_to(fmap)
+
 water_def = None
 try:
     water_layer = folium.GeoJson(
         geo.load_water(), name="Water",
+        pane=WATER_PANE,
         style_function=lambda f: {
-            "color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.6,
+            "color": WATER_LINE_COLOR, "weight": 0.3, "opacity": 0.4,
             "fill": True, "fillColor": WATER_FILL_COLOR,
             "fillOpacity": WATER_FILL_OPACITY,
         },
@@ -1781,6 +1857,24 @@ turbidity_def = {"key": "turbidity", "label": T["turbidity_label"], "layer": tur
 
 station_layer.add_to(fmap)
 
+# --- Tap-to-read, entirely client-side. See map_controls.add_pixel_readout.
+map_controls.add_pixel_readout(
+    fmap, value_png_data_uri(picked_path), bounds,
+    {
+        "classes": [{"max": c["max"], "color": c["color"], "label": c["label"]}
+                    for c in style.CLASSES],
+        "maxNtu": VALUE_PNG_MAX_NTU,
+        "districtField": DISTRICT_NAME_FIELD,
+        "provinceField": PROVINCE_NAME_FIELD,
+        "districtLabel": T["popup_district"],
+        "provinceLabel": T["popup_province"],
+        "predictedLabel": T["popup_predicted"],
+        "noWater": T["pixel_no_water"],
+        "note": T["pixel_note"].format(date=f"{picked_date:%d %b %Y}"),
+    },
+    district_layer=district_layer if district_def else None,
+)
+
 # Water last, so its rail button sits below the turbidity one.
 overlay_defs = [d for d in [stations_def, province_def, district_def, turbidity_def,
                             water_def] if d is not None]
@@ -1803,6 +1897,15 @@ map_controls.declutter_labels(fmap)
 # returned_objects=[]: panning/zooming is handled entirely client-side (see
 # add_view_persistence) precisely so it does NOT feed back into a Streamlit
 # return value - that would rerun the whole script on every pan/zoom tick.
+# returned_objects is limited to last_clicked on purpose. st_folium reruns the
+# whole app whenever its return value changes, so asking for pan/zoom state
+# would rerun on every mouse move across the map (which is why view
+# persistence is done client-side - see map_controls.add_view_persistence).
+# A click is a deliberate act, and one rerun per tap is what it costs.
+# returned_objects=[] - nothing comes back from the map, so nothing it does
+# can trigger a rerun. The tap-to-read popup is handled inside the iframe (see
+# map_controls.add_pixel_readout); routing clicks through Streamlit instead
+# cost 6.5s per tap, because every rerun re-serialises all the layers.
 st_folium(fmap, use_container_width=True, height=1400, returned_objects=[])
 
 idx = dates.index(picked_date)
@@ -1987,66 +2090,88 @@ with st.sidebar:
     st.markdown(f"#### {T['streamflow_heading']}")
     st.caption(T["window_label"])
 
-    # Fetched with a 30-day run-up so the widest averaging window is already
-    # full at the first plotted day - see load_level_history(lead_days=).
-    levels = load_level_history(RANGE_START, RANGE_END, lead_days=SMOOTH_WINDOWS[-1])
+    # No run-up fetched any more: a monthly mean needs only the days inside
+    # the month, where the rolling averages this used to draw needed up to 30
+    # days of history before the first plotted point.
+    levels = load_level_history(RANGE_START, RANGE_END)
     if levels.empty:
         st.markdown(
             f'<div class="sb-sub">{T["streamflow_unavailable"]}</div>', unsafe_allow_html=True,
         )
     else:
         # required=True: without it a segmented control is clearable, and
-        # clicking a choice could leave *nothing* selected - the buttons all
-        # went unlit while the chart silently fell back to the full range.
-        # The `or` fallbacks stay as a guard for the very first render.
+        # clicking the selected choice could leave *nothing* selected - the
+        # buttons all went unlit while the chart silently fell back to the
+        # full range. The `or` fallback guards the very first render.
         month_choices = {T["month_all"]: None, T["month_nov"]: 11, T["month_dec"]: 12}
         sel_month = st.segmented_control(
-            T["month_label"], list(month_choices), default=T["month_all"], key="flow_month",
-            required=True,
+            T["month_label"], list(month_choices), default=T["month_all"],
+            key="flow_month", required=True,
         ) or T["month_all"]
-        sel_window = st.segmented_control(
-            T["smooth_label"], SMOOTH_WINDOWS, default=SMOOTH_WINDOWS[0], key="flow_window",
-            required=True, format_func=lambda n: T["smooth_days"].format(n=n),
-        ) or SMOOTH_WINDOWS[0]
 
-        # Average over the full fetched series (run-up included) and only then
-        # cut to the month on show, so switching month changes the view, never
-        # the arithmetic behind a given day's point.
-        levels = levels.sort_values("Date")
-        levels["Smooth"] = levels.groupby("Gauge")["Level"].transform(
-            lambda s: s.rolling(sel_window, min_periods=1).mean()
+        shown = levels[levels["Date"] >= pd.Timestamp(RANGE_START)].copy()
+
+        # 5-day bins, restarted at each month boundary rather than run
+        # continuously from 01 Nov. A continuous run would put a bin across
+        # 29 Nov - 03 Dec, which the month selector below could not place in
+        # either month without either double-counting it or dropping it.
+        #
+        # Day 31 is clipped into the 26th's bin, so December ends with one
+        # 6-day bin instead of a 1-day bin whose mean would sit on a single
+        # reading and swing wildly against its neighbours.
+        day = shown["Date"].dt.day
+        bin_day = (((day - 1) // BIN_DAYS).clip(upper=(31 // BIN_DAYS) - 1)
+                   * BIN_DAYS + 1)
+        shown["BinStart"] = pd.to_datetime(
+            dict(year=shown["Date"].dt.year, month=shown["Date"].dt.month, day=bin_day)
         )
-        shown = levels[levels["Date"] >= pd.Timestamp(RANGE_START)]
+
+        binned = (shown.groupby(["Gauge", "BinStart"], as_index=False)["Level"]
+                  .mean().sort_values("BinStart"))
+
+        # Axis fixed to 1..5 m, and measured from the WHOLE range rather than
+        # the month on show, so switching month moves the lines and never the
+        # scale - which is the only way two months can be compared by eye.
+        #
+        # The top clears the data rather than stopping at 5: the highest bin
+        # is 5.20 m (M.9, early November), so a hard 1-5 domain would have
+        # quietly clipped it off the top of the chart. Labels stay at
+        # 1,2,3,4,5; the extra headroom is unlabelled.
+        y_top = max(5.0, float(binned["Level"].max())) * 1.03
+
         month = month_choices[sel_month]
         if month is not None:
-            shown = shown[shown["Date"].dt.month == month]
+            binned = binned[binned["BinStart"].dt.month == month]
 
-        gauges = sorted(shown["Gauge"].unique())
+        gauges = sorted(binned["Gauge"].unique())
         colour = alt.Color(
             "Gauge:N",
             scale=alt.Scale(domain=gauges, range=GAUGE_COLORS[: len(gauges)]),
             legend=alt.Legend(title=None, orient="bottom"),
         )
-        base = alt.Chart(shown).encode(
-            x=alt.X("Date:T", title=None, axis=alt.Axis(format="%d %b")), color=colour,
-        )
-        y_axis = alt.Y("Level:Q", title=T["level_m"], scale=alt.Scale(zero=False))
-        # Raw daily kept underneath at low opacity: the averaged line is the
-        # trend, but without the reading behind it there is no way to see how
-        # much smoothing the chosen window is doing.
-        daily = base.mark_line(strokeWidth=1, opacity=0.28).encode(y=y_axis)
-        smooth = base.mark_line(strokeWidth=2.5).encode(
-            y=alt.Y("Smooth:Q", title=T["level_m"], scale=alt.Scale(zero=False)),
+        # Points joined by a line, not bars. These are metres above datum, not
+        # counts, so the axis cannot start at zero without flattening every
+        # difference - and a bar drawn from a truncated baseline states a
+        # proportion that isn't true. A point sits at its value and claims
+        # nothing about the distance to zero.
+        base = alt.Chart(binned).encode(
+            x=alt.X("BinStart:T", title=None, axis=alt.Axis(format="%d %b")),
+            y=alt.Y("Level:Q", title=T["level_m"],
+                    scale=alt.Scale(domain=[1, y_top], nice=False, clamp=False),
+                    # labelOverlap=False: Vega's default drops alternate
+                    # labels when it thinks they crowd, which at this height
+                    # left the axis reading 1, 3, 5 even though all five ticks
+                    # were in the DOM.
+                    axis=alt.Axis(values=[1, 2, 3, 4, 5], labelOverlap=False)),
+            color=colour,
             tooltip=[
                 alt.Tooltip("Gauge:N", title=T["gauge"]),
-                alt.Tooltip("Date:T", title="Date", format="%d %b %Y"),
-                alt.Tooltip("Level:Q", title=T["daily_reading"], format=".2f"),
-                alt.Tooltip("Smooth:Q",
-                            title=T["avg_reading"].format(n=sel_window), format=".2f"),
+                alt.Tooltip("BinStart:T", title=T["period_from"], format="%d %b %Y"),
+                alt.Tooltip("Level:Q", title=T["period_mean"], format=".2f"),
             ],
         )
         flow_chart = (
-            (daily + smooth)
+            (base.mark_line(strokeWidth=2) + base.mark_point(size=45, filled=True))
             .properties(height=165)
             .configure_axis(gridColor="#e1e0d9", domainColor="#c3c2b7", tickColor="#c3c2b7",
                             labelColor="#52514e", titleColor="#52514e", labelFontSize=10)

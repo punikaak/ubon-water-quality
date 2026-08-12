@@ -57,12 +57,31 @@ WATER_OUT = "thailand_water.geojson"
 # Metres, applied in the source CRS before reprojection - the archive is UTM
 # zone 47N, so the tolerance is a real ground distance rather than a fraction
 # of a degree that means different things east-west and north-south.
-SHAPE_TOLERANCE_M = 250
+#
+# 60m, not the 250m this started at. The polygons that survive MIN_AREA_KM2
+# are big but extremely detailed - 1,416 of them carry 4.17M vertices, ~2,900
+# each - and 250m of allowed error kept only 3.9% of those, which is what made
+# the layer read as flat-sided blocks rather than wetland. Measured:
+#
+#     tol     vertices   share of raw   file
+#     250m     163,371           3.9%   3.9MB
+#     120m     229,084           5.5%   5.8MB
+#      60m     325,681           7.8%   8.2MB
+#      30m     475,692          11.4%  11.8MB
+#
+# 60m is chosen against the zoom this is actually read at: one screen pixel is
+# ~148m of ground at zoom 10 and ~18m at zoom 13, so 60m is invisible across
+# the range the map opens in and only starts to show past the point where a
+# reader is inspecting one wetland rather than the province.
+SHAPE_TOLERANCE_M = 60
 
 # Smallest polygon worth drawing, km2. See the module docstring.
 MIN_AREA_KM2 = 1.0
 
-COORD_DECIMALS = 4
+# 5 places, ~1.1m. At 4 (~11m) the rounding was a sixth of the tolerance and
+# visibly ragged the edges of the smaller polygons once the tolerance came
+# down; the extra place costs far less than the detail it preserves.
+COORD_DECIMALS = 5
 
 
 def rounded(obj):
