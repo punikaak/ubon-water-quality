@@ -9,3 +9,9 @@ seaborn>=0.13
 # Reads the Thai .shp/.dbf files for import_shapefiles.py. Pure Python, no GDAL
 # build needed; the reprojection it feeds uses rasterio, already a dependency.
 pyshp>=2.3
+# shapely.coverage_simplify, added in 2.1, is what keeps a border shared
+# between two districts from being thinned into two different lines - see
+# import_shapefiles.thin_all(). Raised here rather than in requirements.txt
+# because only the local build needs it: the deployed app reads the GeoJSON
+# this produces and never simplifies anything, so its install stays lean.
+shapely>=2.1
