@@ -55,6 +55,7 @@ import zipfile
 from collections import defaultdict
 
 import shapefile  # pyshp - see requirements-dev.txt
+import shapely
 from rasterio.warp import transform as warp_transform
 from shapely.geometry import mapping, shape
 from shapely.ops import transform as shapely_transform
@@ -242,14 +243,34 @@ def clean_th(raw: str) -> str:
     return s
 
 
-def thin(geom):
-    """One polygon, simplified and rounded ready to write.
+def thin_all(geoms):
+    """Simplify a whole layer AS A COVERAGE, not polygon by polygon.
 
-    Deliberately takes no arguments beyond the geometry: every feature in both
-    layers is thinned identically, which is what keeps a shared border drawn
-    as one line rather than two. See SHAPE_TOLERANCE.
+    This is the difference between one border line and two.
+
+    geom.simplify() preserves each polygon's own validity, and nothing else.
+    Douglas-Peucker gives no guarantee that the border two amphoe share thins
+    to the same vertices when it is walked from each of their rings - so the
+    neighbours drift apart, and every shared border draws twice with a sliver
+    between. Measured on Det Udom and Thung Si Udom, which share 52.6km of
+    exactly identical boundary in the source shapefile:
+
+        source                         52.6 km shared   0.0000 km2 overlap
+        per-polygon simplify(0.001)    31.4 km          0.4570 km2
+        coverage_simplify(0.001)       51.3 km          0.0000 km2
+
+    coverage_simplify treats the layer as a partition of the plane: each edge
+    exists once, is thinned once, and both neighbours get the same result. The
+    slivers are gone by construction rather than by tuning.
+
+    It costs size - 6.0MB against 3.2MB at the same tolerance - because
+    keeping a border consistent means keeping vertices that per-polygon
+    thinning was free to discard on one side.
+
+    Needs shapely >= 2.1.
     """
-    return geom.simplify(SHAPE_TOLERANCE, preserve_topology=True)
+    return list(shapely.coverage_simplify(list(geoms), tolerance=SHAPE_TOLERANCE,
+                                          simplify_boundary=True))
 
 
 def rounded(obj):
@@ -316,14 +337,21 @@ def build_districts(layer, names_by_code):
         if code not in labels or not labels[code][0]:
             labels[code] = (clean_en(rec["AMP_NAME_E"]), clean_th(rec["AMP_NAME_T"]))
 
-    features = []
-    for code, parts in sorted(groups.items()):
-        prov_code = code[:2]
-        prov_en, prov_th = names_by_code.get(prov_code, ("", ""))
+    # Assemble every polygon first, then thin the whole layer in one pass -
+    # see thin_all() for why this cannot be done feature by feature.
+    codes = sorted(groups)
+    assembled = []
+    for code in codes:
+        parts = groups[code]
         geom = parts[0] if len(parts) == 1 else unary_union(parts)
         if not geom.is_valid:
             geom = geom.buffer(0)
-        geom = thin(to_wgs84(geom, crs))
+        assembled.append(to_wgs84(geom, crs))
+
+    features = []
+    for code, geom in zip(codes, thin_all(assembled)):
+        prov_code = code[:2]
+        prov_en, prov_th = names_by_code.get(prov_code, ("", ""))
         if geom.is_empty:
             continue
         name_en, name_th = labels[code]
@@ -342,20 +370,29 @@ def build_districts(layer, names_by_code):
 
 
 def build_provinces(layer):
-    """All 77 provinces, straight from the province shapefile."""
+    """All 77 provinces, straight from the province shapefile.
+
+    Thinned as a coverage like the districts: provinces share their borders
+    with each other too, so simplifying them one at a time doubles those
+    lines in exactly the same way.
+    """
     crs, reader = layer.crs, layer.reader
-    features = []
+    records, assembled = [], []
     for rec, shp in zip(reader.records(), reader.shapes()):
-        name_en = clean_en(rec["PROV_NAME"])
         geom = shape(shp.__geo_interface__)
         if not geom.is_valid:
             geom = geom.buffer(0)
-        geom = thin(to_wgs84(geom, crs))
+        records.append(rec)
+        assembled.append(to_wgs84(geom, crs))
+
+    features = []
+    for rec, geom in zip(records, thin_all(assembled)):
         if geom.is_empty:
             continue
         features.append({
             "type": "Feature",
-            "properties": {"ADM1_NAME": name_en, "ADM1_NAME_TH": clean_th(rec["PROV_NAMT"])},
+            "properties": {"ADM1_NAME": clean_en(rec["PROV_NAME"]),
+                           "ADM1_NAME_TH": clean_th(rec["PROV_NAMT"])},
             "geometry": rounded(mapping(geom)),
         })
     return {"type": "FeatureCollection", "features": features}
