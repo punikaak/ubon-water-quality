@@ -221,9 +221,11 @@ TRANSLATIONS = {
         "popup_predicted": "Predicted Turbidity",
         "popup_measured": "Measured Turbidity",
         "popup_level": "Turbidity Level",
+        "popup_no_measurement": "no PCD reading",
         "popup_note": (
-            "Predicted value is for {date}. Measured value is this station's average "
-            "across the PCD record, not a reading taken that day."
+            "Marker colour and level come from the measured value. Predicted value is "
+            "for {date}; the measured value is the nearest PCD reading to it, taken on "
+            "the date shown beside it."
         ),
         "info_label": "Information",
         "info_data_source": "Data Source",
@@ -319,9 +321,10 @@ TRANSLATIONS = {
         "popup_predicted": "ความขุ่นที่ประเมิน",
         "popup_measured": "ความขุ่นที่ตรวจวัด",
         "popup_level": "ระดับความขุ่น",
+        "popup_no_measurement": "ไม่มีค่าตรวจวัดของ คพ.",
         "popup_note": (
-            "ค่าประเมินเป็นของวันที่ {date} ส่วนค่าตรวจวัดเป็นค่าเฉลี่ยของสถานีนี้"
-            "จากข้อมูลกรมควบคุมมลพิษ ไม่ใช่ค่าที่วัดในวันดังกล่าว"
+            "สีของหมุดและระดับความขุ่นมาจากค่าที่ตรวจวัดจริง ค่าประเมินเป็นของวันที่ {date} "
+            "ส่วนค่าตรวจวัดคือค่าที่กรมควบคุมมลพิษวัดในวันที่ใกล้เคียงที่สุด ตามวันที่แสดงกำกับไว้"
         ),
         "info_label": "ข้อมูล",
         "info_data_source": "แหล่งที่มาของข้อมูล",
@@ -1205,6 +1208,35 @@ def district_ntu(path: str):
     return pd.DataFrame(rows).sort_values("NTU", ascending=False).reset_index(drop=True)
 
 
+def measured_near(samples, when):
+    """{code: (ntu, date)} - each station's PCD reading closest in time to
+    `when`.
+
+    This is what colours the station markers, so it is worth being precise
+    about which reading it picks and why it is not one of the two more
+    obvious rules:
+
+    - *The reading taken on the selected date* would be ideal and is not
+      available. PCD samples these stations in quarterly rounds - 26 samples
+      across the year, one to three per station - and only the mid-November
+      round falls inside the two months this dashboard shows, covering 6 of
+      the 15 stations. Almost every date on the timeline would render an
+      empty map.
+    - *The station's average over the whole record* always exists, but it
+      ignores the date the reader picked, so the markers would sit frozen
+      while everything else on the page moved.
+
+    Nearest-in-time keeps every marker on a real measurement while letting
+    the stations that were sampled more than once move as the timeline does.
+    The gap between the reading and the selected date can run to months, so
+    it is not hidden: the date the sample was actually taken is returned with
+    it and printed in the popup.
+    """
+    gaps = (samples["Date"] - pd.Timestamp(when)).abs()
+    nearest = samples.loc[gaps.groupby(samples["Code"]).idxmin()]
+    return {r.Code: (float(r.Turbidity_), r.Date.date()) for r in nearest.itertuples()}
+
+
 # Per-station turbidity for the *currently selected* composite date - this is
 # what both the map markers and the sidebar station list show, so picking a
 # different date updates both instead of only the map's own raster overlay.
@@ -1213,6 +1245,12 @@ station_now["Predicted_NTU"] = [
     pc.sample_at(turbidity_map, valid_mask, bounds, r.station_la, r.station_lo) or r.Predicted_NTU
     for r in station_summary.itertuples()
 ]
+# The ground truth behind each marker. Turbidity_Actual (the record-wide mean
+# carried on station_summary) is left alone - it is what the sidebar trend
+# chart compares against - and this is the dated reading the map uses.
+_measured = measured_near(df_val, picked_date)
+station_now["Measured_NTU"] = [_measured.get(c, (None, None))[0] for c in station_now["Code"]]
+station_now["Measured_Date"] = [_measured.get(c, (None, None))[1] for c in station_now["Code"]]
 station_now = station_now.sort_values("Predicted_NTU", ascending=False)
 
 _station_coords = [(r.Code, r.station_la, r.station_lo) for r in station_summary.itertuples()]
@@ -1405,19 +1443,22 @@ def value_png_data_uri(path):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def station_popup_html(code, predicted_ntu, measured_ntu, cls):
+def station_popup_html(code, predicted_ntu, measured_ntu, measured_date, cls):
     """The card shown when a station marker is clicked: station code as the
     heading, then where it is, then its numbers.
 
     The level is a filled pill in its own class colour rather than a word, so
     it reads the same way as the marker it came from, the legend and the
-    district card - one severity scale, shown one way everywhere.
+    district card - one severity scale, shown one way everywhere. It carries
+    the *measured* value, because the marker's fill does: a pill that
+    disagreed with the dot it opened from would be the one thing on this card
+    a reader has no way to resolve.
 
     The note at the foot is what the old inline labels ("Predicted
     (satellite)", "Measured (PCD avg)") used to carry. Those qualifiers
-    matter - the predicted figure moves with the selected date while the
-    measured one is a fixed average over the whole PCD record - so they moved
-    into a caption rather than being dropped when the labels were shortened.
+    matter more now, not less - the two numbers come from different days as
+    well as different instruments - so the measured row is stamped with the
+    date PCD actually sampled it, and the note says which is which.
     """
     parts = station_places.get(code, {})
     levels = (("subdistrict", T["popup_subdistrict"]),
@@ -1433,15 +1474,28 @@ def station_popup_html(code, predicted_ntu, measured_ntu, cls):
     rows = [f'<div class="wq-pop-row"><b>{label}:</b> {named[key]}</div>'
             for key, label in levels if named[key]]
     place_block = f'<div class="wq-pop-group">{"".join(rows)}</div>' if rows else ""
+    # A station with no PCD reading at all would classify as "Unavailable"
+    # (grey), and printing "nan NTU" beside it helps nobody. Every station in
+    # the current record has at least one sample, so this is a guard rather
+    # than a case that fires today.
+    if measured_ntu is None:
+        measured_row = (f'<div class="wq-pop-row"><b>{T["popup_measured"]}:</b> '
+                        f'{T["popup_no_measurement"]}</div>')
+        pill_value = T["popup_no_measurement"]
+    else:
+        measured_row = (f'<div class="wq-pop-row"><b>{T["popup_measured"]}:</b> '
+                        f'{measured_ntu:.1f} NTU '
+                        f'<span class="wq-pop-when">&middot; {measured_date:%d %b %Y}</span></div>')
+        pill_value = f"{measured_ntu:.1f} NTU"
     return (
         f'<div class="wq-pop-title">{code}</div>'
         + place_block
         + '<div class="wq-pop-group">'
         f'<div class="wq-pop-row"><b>{T["popup_predicted"]}:</b> {predicted_ntu:.1f} NTU</div>'
-        f'<div class="wq-pop-row"><b>{T["popup_measured"]}:</b> {measured_ntu:.1f} NTU</div>'
-        f'<div class="wq-pop-row"><b>{T["popup_level"]}:</b> '
+        + measured_row
+        + f'<div class="wq-pop-row"><b>{T["popup_level"]}:</b> '
         f'<span class="wq-pop-pill" style="background:{cls["color"]}">'
-        f'{predicted_ntu:.1f} NTU &middot; {cls["label"]}</span></div>'
+        f'{pill_value} &middot; {cls["label"]}</span></div>'
         '</div>'
         f'<div class="wq-pop-note">{T["popup_note"].format(date=f"{picked_date:%d %b %Y}")}</div>'
     )
@@ -1449,13 +1503,20 @@ def station_popup_html(code, predicted_ntu, measured_ntu, cls):
 
 station_layer = folium.FeatureGroup(name="Ground Stations", show=True)
 for _, r in station_now.iterrows():
-    cls = style.classify(r["Predicted_NTU"])
+    # Ground measurement, not the satellite estimate. These markers are PCD
+    # stations: what they report should be what PCD measured, which also makes
+    # them an independent check on the overlay they sit on rather than a
+    # restatement of it. The satellite figure stays in the popup, and
+    # everything else on the map - overlay, tap-to-read, district ranking - is
+    # still model output. See measured_near() for which reading this is.
+    cls = style.classify(r["Measured_NTU"])
     folium.CircleMarker(
         location=[r["station_la"], r["station_lo"]],
         radius=8, color=STATION_STROKE_COLOR, weight=1, fill=True,
         fill_color=cls["color"], fill_opacity=0.95,
         popup=folium.Popup(
-            station_popup_html(r["Code"], r["Predicted_NTU"], r["Turbidity_Actual"], cls),
+            station_popup_html(r["Code"], r["Predicted_NTU"], r["Measured_NTU"],
+                               r["Measured_Date"], cls),
             # Wide enough for "Mueang Ubon Ratchathani" to stay on one line;
             # min_width stops short codes collapsing the card to a sliver.
             max_width=320, min_width=250,

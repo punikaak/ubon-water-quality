@@ -253,6 +253,11 @@ _CSS = """
 .leaflet-popup-content > .wq-pop-group:first-child .wq-pop-row:first-child {
     padding-right:26px; }
 .wq-pop-row b { color:#12161c; font-weight:700; }
+/* The date a ground reading was taken, set beside the value it qualifies.
+   Recessive on purpose - it is the caveat on the number, not a second number
+   competing with it - but present, because that reading can be months away
+   from the date the map is showing. */
+.wq-pop-when { color:#9aa3ad; font-size:0.78em; white-space:nowrap; }
 /* The level, as a filled pill in its turbidity class colour. Dark text on
    every class rather than a per-class text colour: the ramp runs from pale
    blue to dark red, and #12161c is the one foreground that stays legible
