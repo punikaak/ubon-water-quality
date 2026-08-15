@@ -1152,14 +1152,33 @@ function render() {
 
 function start() {
     /* Resolved fresh on every run: which controls exist depends on the
-       viewport (the sidebar is collapsed on a phone) and on which layers the
-       caller supplied, so a step whose target is not on screen is dropped
-       rather than shown pointing at nothing. */
+       viewport and on which layers the caller supplied, so a step whose
+       target is not on screen is dropped rather than shown pointing at
+       nothing. */
     live = STEPS.filter(function (s) { return !!rectFor(s); });
     if (!live.length) return;
     idx = 0;
     ov.classList.add('wqt-open');
     render();
+}
+
+/* ...but only once the page has finished arriving, because that snapshot is
+   taken exactly once and a target that is merely late looks identical to one
+   that is absent.
+   This bit them on Streamlit Cloud and nowhere else: the deployed app lays
+   out slower than a local run, the button that opens the side panel had not
+   been positioned when the tour looked for it, and the live site quietly ran
+   12 steps instead of 13. Waiting a fixed longer time would just move the
+   race; waiting for the count to stop growing ends it. */
+function startWhenSettled(budgetMs) {
+    var last = -1, waited = 0, gap = 250;
+    (function tick() {
+        var n = 0;
+        for (var i = 0; i < STEPS.length; i++) { if (rectFor(STEPS[i])) n++; }
+        if (n === last || waited >= budgetMs) { start(); return; }
+        last = n; waited += gap;
+        pwin.setTimeout(tick, gap);
+    })();
 }
 
 function stop() {
@@ -1184,7 +1203,11 @@ document.addEventListener('keydown', onKey);
 pwin.addEventListener('resize', function () { if (ov.classList.contains('wqt-open')) render(); });
 
 var trigger = mapEl.querySelector('[data-wq-tour]');
-if (trigger) { trigger.addEventListener('click', start); }
+if (trigger) {
+    // Settled here too: pressing "?" the moment the page appears hits the
+    // same race, and the wait costs one 250ms tick when everything is ready.
+    trigger.addEventListener('click', function () { startWhenSettled(1500); });
+}
 
 /* Every visit runs it unprompted, and the "?" button replays it on demand.
 
@@ -1203,7 +1226,7 @@ try {
         pwin.setTimeout(function () {
             if (pwin.__wqTourShown === true) return;
             pwin.__wqTourShown = true;
-            start();
+            startWhenSettled(4000);
         }, 1400);
     }
 } catch (e) {}
