@@ -78,6 +78,13 @@ _INFO_BADGE = (
     '<rect x="10.6" y="10.2" width="2.8" height="7.2" rx="1.4" fill="#fff"/></svg>'
 )
 _INFO_COLOR = "#1e3a4a"
+_TOUR_ICON = (
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M9.1 9a3 3 0 1 1 4.2 2.8c-.8.4-1.3 1.1-1.3 2v.6"/>'
+    '<circle cx="12" cy="18" r="0.9" fill="currentColor" stroke="none"/></svg>'
+)
+_TOUR_COLOR = "#7a5cc4"
 
 # Fixed per-layer icon glyph + accent color, keyed by the same "key" used in
 # overlay_defs - this app only ever has these four toggleable overlays, so
@@ -122,6 +129,24 @@ _OVERLAY_STYLE = {
 }
 _BASEMAP_COLOR = "#c99a5b"
 
+
+def control_icon(key: str) -> tuple[str, str]:
+    """(accent colour, SVG glyph) for one control, keyed as the rail keys it.
+
+    Public so the Information modal's how-to list can draw the *same* glyphs
+    the rail draws. A second, hand-copied set of icons in the help text would
+    be correct exactly until the first time an icon changed, and a help screen
+    showing a symbol the map no longer uses is worse than no help screen.
+    """
+    if key in _OVERLAY_STYLE:
+        return _OVERLAY_STYLE[key]
+    return {
+        "legend": (_LEGEND_COLOR, _LEGEND_ICON),
+        "basemap": (_BASEMAP_COLOR, _BASEMAP_ICON),
+        "info": (_INFO_COLOR, _INFO_ICON),
+    }[key]
+
+
 BASEMAP_SWATCHES = {
     "Light": "#eef1f4",
     "Dark": "#2b2f3a",
@@ -149,23 +174,35 @@ _CSS = """
    top:75px (not 16px): the page title is now a full-width bar across the
    top of the map (see dashboard.py's .page-header), so this rail has to
    clear its height instead of sitting underneath/behind it. */
-.wq-rail { position:fixed; top:75px; right:16px; z-index:1000;
-    display:flex; flex-direction:column; align-items:center; gap:8px; background:#fff;
-    border-radius:999px; box-shadow:0 2px 14px rgba(0,0,0,0.22); padding:10px 6px;
-    font-family:__WQ_FONT__; }
-.wq-icon-btn { display:flex; flex-direction:column; align-items:center; gap:3px; width:48px;
-    border:none; background:none; padding:0; cursor:pointer; }
-.wq-icon-circle { width:31px; height:31px; border-radius:50%; display:flex; align-items:center;
+/* top:107px is a starting value only - fitRailToHeader() below replaces it
+   with a figure measured off the real title card as soon as the map is up.
+   It is set to the common case rather than something arbitrary so the first
+   paint is already right and the rail does not visibly jump. */
+.wq-rail { position:fixed; top:107px; right:16px; z-index:1000;
+    display:flex; flex-direction:column; align-items:center; gap:6px; background:#fff;
+    border-radius:999px; box-shadow:0 2px 14px rgba(0,0,0,0.22); padding:8px 5px;
+    font-family:__WQ_FONT__;
+    /* The rail grows with the number of layers, and Thai labels wrap to three
+       lines, so on a short viewport the last entry used to be clipped by the
+       timeline bar with no way to reach it. Bounded and scrollable instead;
+       the scrollbar is hidden because a visible one inside a pill reads as
+       damage rather than as an affordance. */
+    max-height:calc(100vh - 225px); overflow-y:auto; overflow-x:hidden;
+    scrollbar-width:none; -ms-overflow-style:none; }
+.wq-rail::-webkit-scrollbar { display:none; }
+.wq-icon-btn { display:flex; flex-direction:column; align-items:center; gap:2px; width:42px;
+    border:none; background:none; padding:0; cursor:pointer; flex-shrink:0; }
+.wq-icon-circle { width:27px; height:27px; border-radius:50%; display:flex; align-items:center;
     justify-content:center; color:#fff; background:var(--wq-color); transition:background .15s,opacity .15s; }
-.wq-icon-circle svg { width:17px; height:17px; }
+.wq-icon-circle svg { width:14px; height:14px; }
 .wq-icon-btn:not(.wq-on) .wq-icon-circle { background:#c7ccd2; }
 .wq-icon-btn.wq-active .wq-icon-circle { box-shadow:0 0 0 2px rgba(30,58,74,0.25); }
-.wq-icon-label { font-size:0.70rem; font-weight:600; color:#3a4450; text-align:center; line-height:1.1; }
+.wq-icon-label { font-size:0.65rem; font-weight:600; color:#3a4450; text-align:center; line-height:1.1; }
 .wq-icon-btn:not(.wq-on) .wq-icon-label { color:#a9b1ba; }
-/* right:76px = the rail's 60px footprint (48px button + 6px padding each
-   side) plus its own 16px inset. It was 60px for the narrower rail; leaving
-   it there would open every fly-out underneath the rail it belongs to. */
-.wq-panel { position:fixed; top:75px; right:76px; z-index:1000;
+/* right:68px = the rail's 52px footprint (42px button + 5px padding each
+   side) plus its own 16px inset. Track this whenever the rail is resized, or
+   every fly-out opens underneath the rail it belongs to. */
+.wq-panel { position:fixed; top:107px; right:68px; z-index:1000;
     width:230px; background:#fff; border-radius:12px; box-shadow:0 2px 14px rgba(0,0,0,0.2);
     padding:14px; display:none; font-family:__WQ_FONT__; max-height:70vh; overflow-y:auto; }
 /* Leaflet's own zoom control, top of the bottom-left stack. The other two
@@ -181,17 +218,16 @@ _CSS = """
    .wq-rail comment above) container, not the visible viewport, so without
    this override the bottom offset measures from that container's real
    bottom edge, far below what's actually visible. */
-.leaflet-bottom.leaflet-left { position:fixed !important; bottom:190px !important; left:16px !important; }
+.leaflet-bottom.leaflet-left { position:fixed !important; bottom:184px !important; left:16px !important; }
 .leaflet-control-zoom { border-radius:12px !important; overflow:hidden;
     box-shadow:0 2px 14px rgba(0,0,0,0.22) !important; border:none !important; }
 /* Sized to match the layer rail's buttons rather than left at Leaflet's
-   default 30px. The rail's icon circles are 31px, but its buttons carry a
-   label underneath and so read as a ~45px block; a bare 30px square beside
-   that looks like a smaller class of control, which is exactly the
-   complaint. 38px sits between the two and matches by weight. */
+   default 30px: the rail's circles are 25px but each button carries a label
+   under it, so the block reads larger, and a bare 25px square beside that
+   looks like a lesser class of control. 30px sits between the two. */
 .leaflet-control-zoom a { font-family:__WQ_FONT__ !important;
-    width:38px !important; height:38px !important; line-height:38px !important;
-    font-size:26px !important; }
+    width:30px !important; height:30px !important; line-height:30px !important;
+    font-size:19px !important; }
 /* The OSM credit stays - ODbL requires attribution - but it does not need to
    be a full-contrast bar competing with the data, so it is toned down.
    position:fixed for the same reason as the zoom corner above: Leaflet
@@ -283,12 +319,17 @@ _CSS = """
    (38px wide at the corner's 26px inset). bottom:280px, not 270: the zoom
    pair grew to 76px tall and its top edge is now 266px up, so the old offset
    left only 4px of gap. */
-.wq-info-fab { position:fixed; left:25px; bottom:290px; z-index:1000;
-    width:40px; height:40px; padding:0; border:none; border-radius:50%;
+/* bottom:268px: the zoom pair is 60px tall sitting 194px up (its corner's
+   184px plus Leaflet's own 10px control margin), so its top edge is at 254px
+   and this clears it by 14px - the same gap the stack had at the old sizes.
+   left:25px keeps it centred on that pair, which starts 26px in once the
+   same 10px margin is counted. */
+.wq-info-fab { position:fixed; left:25px; bottom:268px; z-index:1000;
+    width:32px; height:32px; padding:0; border:none; border-radius:50%;
     cursor:pointer; display:flex; align-items:center; justify-content:center;
     background:#fff; color:#12161c; box-shadow:0 2px 14px rgba(0,0,0,0.22);
     transition:background .15s; }
-.wq-info-fab svg { width:22px; height:22px; }
+.wq-info-fab svg { width:17px; height:17px; }
 .wq-info-fab:hover { background:#eef1f4; }
 
 /* --------------------------------------------------------- info modal ---
@@ -304,8 +345,11 @@ _CSS = """
    resolves its content box to the viewport minus its own padding - so the
    card's max-height:100% below is already "what's left once the timeline
    bar's strip is excluded", with no second number to keep in sync. */
+/* Top padding matches the bottom for the same reason: the floating title card
+   sits over the map's upper strip and is outside this iframe, so a card
+   centred on the raw viewport rides underneath it. 100px clears the title. */
 .wq-modal { position:fixed; inset:0; z-index:2000; display:none;
-    align-items:center; justify-content:center; padding:24px 24px 100px 24px;
+    align-items:center; justify-content:center; padding:100px 24px 100px 24px;
     background:rgba(15,23,32,0.45); font-family:__WQ_FONT__; }
 .wq-modal.wq-open { display:flex; }
 .wq-modal-card { background:#fff; border-radius:16px; width:min(640px,100%);
@@ -330,6 +374,27 @@ _CSS = """
 .wq-info-row a { color:#2a78d6; text-decoration:none; }
 .wq-info-row a:hover { text-decoration:underline; }
 .wq-info-note { font-size:0.74rem; color:#8a95a3; line-height:1.5; margin:12px 2px 0 2px; }
+/* ------------------------------------------------------ how-to list ---
+   One row per control: the control's own icon on the left, what it does on
+   the right. The icons are the rail's real glyphs (see control_icon), drawn
+   on the same coloured disc the rail uses, so a reader can match what they
+   see here to what they see on the map without translating between two
+   visual languages. */
+.wq-howto-row { display:flex; align-items:flex-start; gap:11px; font-size:0.84rem;
+    line-height:1.55; color:#2b2b3a; padding:9px 0; border-bottom:1px solid #eef1f5; }
+.wq-howto-row:last-child { border-bottom:none; }
+.wq-howto-icon { flex:0 0 26px; width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; color:#fff; margin-top:1px; }
+.wq-howto-icon svg { width:15px; height:15px; }
+/* Controls whose face is an image or a word rather than a rail glyph - the
+   timeline arrows, the panel button, the +/- and the EN/TH pill. Same disc at
+   the same size, so the icon column stays a column. */
+.wq-howto-icon img { width:16px; height:16px; display:block; }
+.wq-howto-icon.wq-howto-word { font-size:0.6rem; font-weight:700; letter-spacing:0.02em; }
+.wq-howto-row b { color:#12161c; }
+/* The tour button sits at the foot of the rail, under a hairline, because it
+   is not a layer toggle like everything above it. */
+.wq-tour-btn { border-top:1px solid #e6e9ee; padding-top:9px; margin-top:3px; }
 
 /* ------------------------------------------------------------- phones ---
    This stylesheet lives inside the map iframe, so it needs its own media
@@ -387,6 +452,36 @@ _CSS = """
    sidebar happened to be open: open, this iframe is ~544px wide and the rule
    applied; closed, it is ~844px and the card fell back to the desktop
    paddings and overlapped both strips. */
+/* ------------------------------------------------- short viewports ---
+   The rail is eight entries tall and its labels wrap - "สถานีคุณภาพน้ำ" takes
+   three lines - so it needs roughly 410px in English and 550px in Thai. Add
+   the 75px it starts down and the ~150px of timeline bar it must clear, and a
+   viewport under ~780px cannot show all of it. It then scrolls (see the rail's
+   max-height), which keeps every button reachable but leaves the last one
+   looking cut in half.
+   So: tighten first, and only drop the labels when tightening is not enough.
+   Height alone is the right key, for the reason given at the 480px rule
+   below - the chrome being cleared costs the same whatever the width. */
+@media (max-height: 820px) {
+  .wq-rail { gap:4px; padding:6px 4px; }
+  .wq-icon-btn { width:38px; }
+  .wq-icon-circle { width:24px; height:24px; }
+  .wq-icon-circle svg { width:13px; height:13px; }
+  .wq-icon-label { font-size:0.58rem; }
+  .wq-panel { right:62px; }
+}
+/* Icons only, and only when the labels genuinely cannot fit. This threshold
+   was 680px, which was wrong: a laptop at browser zoom lands in the 600-700
+   range routinely, and stripping the names there cost far more than the
+   height it saved. At the compacted sizes above, eight labelled buttons need
+   about 360px, so labels survive down to here. Each button keeps its title
+   attribute, so the name is still one hover away. */
+@media (max-height: 520px) {
+  .wq-icon-label { display:none; }
+  .wq-icon-btn { width:24px; }
+  .wq-rail { gap:7px; padding:7px 5px; }
+  .wq-panel { right:50px; }
+}
 @media (max-height: 480px) {
   /* No room above the zoom control here - stacking one higher puts the button
      behind the page header, which the zoom control is already close to. Sit
@@ -484,6 +579,40 @@ if (infoModal) {
     try { window.parent.document.addEventListener('keydown', onEsc); } catch (e) {}
 }
 
+/* The rail has to start below the floating title card, and that card is not in
+   this document - it is page chrome drawn over the map (see .page-header) - so
+   a fixed offset here is a guess about someone else's box. It was wrong twice:
+   once when the title grew into a full-width bar, and again when the 32px gap
+   above the map was removed and every top offset in here shifted up with it,
+   leaving the rail 2px *under* the header.
+   Measure it instead. Same-origin, so the card's real bottom edge is readable;
+   subtract this iframe's own top so the result is in local coordinates. Guarded
+   because that stops being true if the map is ever embedded cross-origin, in
+   which case the CSS value stands. */
+function fitRailToHeader() {
+    try {
+        var pdoc = window.parent.document;
+        var header = pdoc.querySelector('.page-header');
+        if (!header) return;
+        var frame = null, frames = pdoc.querySelectorAll('iframe');
+        for (var i = 0; i < frames.length; i++) {
+            if (frames[i].contentWindow === window) { frame = frames[i]; break; }
+        }
+        if (!frame) return;
+        var top = Math.round(header.getBoundingClientRect().bottom
+                             - frame.getBoundingClientRect().top + 14);
+        if (!(top > 0)) return;
+        mapEl.querySelectorAll('.wq-rail, .wq-panel').forEach(function (el) {
+            el.style.top = top + 'px';
+        });
+    } catch (e) {}
+}
+fitRailToHeader();
+/* The card's height changes with the interface language and with the viewport
+   (it wraps on narrow screens), so this is not a one-time measurement. */
+window.addEventListener('resize', fitRailToHeader);
+try { window.parent.addEventListener('resize', fitRailToHeader); } catch (e) {}
+
 /* These overlays are children of the Leaflet container, so without this a
    wheel scroll inside the modal or a rail panel zooms the map underneath it,
    and a drag across one pans the map. */
@@ -519,7 +648,7 @@ def _overlay_button(key, label, default_on, title=""):
 def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_html,
                     legend_label="Legend", basemap_label="Base Map",
                     font_stack="'Poppins', 'Noto Sans Thai', sans-serif",
-                    info_html=None, info_label="Information"):
+                    info_html=None, info_label="Information", tour_label=None):
     """Attach the pill-shaped icon rail (top-right) to a folium map.
 
     basemap_layers: {display_name: folium.TileLayer}, already added to fmap.
@@ -535,6 +664,10 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         again built by the caller, which knows what the app actually shows).
         Omit it and no Information button is added at all.
     info_label: current-language label for that button and the modal heading.
+    tour_label: label for the "?" button that replays the guided tour, added
+        at the foot of the rail. Omit it and no such button appears - the tour
+        itself is attached separately by add_guided_tour(), and this is only
+        the handle that starts it.
     font_stack: CSS font-family for this iframe's own chrome. Passed in
         because the caller owns the language, and the stack is ordered by it -
         this stylesheet lives inside the map iframe and inherits nothing from
@@ -552,6 +685,13 @@ def add_layer_rail(fmap, basemap_layers, default_basemap, overlay_defs, legend_h
         )
         + f'<button class="wq-icon-btn wq-on" data-wq-toggle="basemap" style="--wq-color:{_BASEMAP_COLOR}">'
         + f'<span class="wq-icon-circle">{_BASEMAP_ICON}</span><span class="wq-icon-label">{basemap_label}</span></button>'
+        # Foot of the rail, below a hairline: it toggles nothing on the map,
+        # it walks the reader through what the buttons above it do. Always
+        # drawn "on" because there is no off state to be in.
+        + (f'<button class="wq-icon-btn wq-on wq-tour-btn" data-wq-tour '
+           f'style="--wq-color:{_TOUR_COLOR}" title="{tour_label}" aria-label="{tour_label}">'
+           f'<span class="wq-icon-circle">{_TOUR_ICON}</span>'
+           f'<span class="wq-icon-label">{tour_label}</span></button>' if tour_label else '')
         + '</div>'
         # Not a rail entry: it controls nothing on the map, it explains what
         # is already on it. Sits on the bottom-left stack above the zoom
@@ -842,6 +982,243 @@ def add_zoom_control(fmap):
     repositioned, so this adds it directly via the Leaflet JS API instead."""
     map_var = fmap.get_name()
     js = f"(function () {{ L.control.zoom({{position: 'bottomleft'}}).addTo({map_var}); }})();"
+    _RawScript(js).add_to(fmap)
+
+
+_TOUR_CSS = """
+/* Effectively the top of the stack. 100000 was not enough: Streamlit's own
+   sidebar outranked it, so the guide card was painted underneath the panel and
+   its left half became unreadable. Nothing on this page should ever sit over
+   the walkthrough. */
+.wqt-overlay { position:fixed; inset:0; z-index:2147483000; display:none; font-family:__WQ_FONT__; }
+.wqt-overlay.wqt-open { display:block; }
+/* Four panels around the target rather than one box with a cut-out: an SVG
+   mask or a giant box-shadow both work, but only panels leave the highlighted
+   control genuinely uncovered, so it still reads at full contrast. */
+.wqt-mask { position:fixed; background:rgba(12,20,28,0.66); }
+.wqt-ring { position:fixed; border-radius:12px; pointer-events:none;
+    box-shadow:0 0 0 2px #fff, 0 0 0 5px rgba(122,92,196,0.95), 0 0 22px 6px rgba(122,92,196,0.45); }
+/* Deliberately loud. It has to win against a dimmed map behind it *and*
+   against whatever page chrome it is standing over, so it carries an accent
+   edge and a deep shadow rather than sitting flat like the info modal. */
+.wqt-card { position:fixed; width:min(330px, calc(100vw - 28px)); background:#fff;
+    border-radius:14px; border-top:3px solid #7a5cc4; padding:15px 17px 13px 17px;
+    box-shadow:0 22px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(122,92,196,0.3); }
+.wqt-step { font-size:0.66rem; font-weight:700; letter-spacing:0.07em; text-transform:uppercase;
+    color:#7a5cc4; margin-bottom:5px; }
+.wqt-title { font-size:1.02rem; font-weight:700; color:#12161c; margin-bottom:6px; line-height:1.3;
+    padding-right:18px; }
+.wqt-body { font-size:0.83rem; line-height:1.55; color:#3a4450; }
+.wqt-actions { display:flex; align-items:center; gap:8px; margin-top:14px; }
+.wqt-dots { flex:1; font-size:0.72rem; color:#9aa3ad; }
+.wqt-btn { border:none; border-radius:999px; padding:7px 15px; font-size:0.8rem; font-weight:600;
+    cursor:pointer; font-family:inherit; }
+.wqt-next { background:#7a5cc4; color:#fff; }
+.wqt-back { background:#eef0f4; color:#3a4450; }
+.wqt-back[hidden] { display:none; }
+.wqt-skip { position:absolute; top:9px; right:11px; border:none; background:none; cursor:pointer;
+    color:#9aa3ad; font-size:1.3rem; line-height:1; padding:2px 5px; }
+.wqt-skip:hover { color:#3a4450; }
+@media (max-width: 640px) { .wqt-card { width:calc(100vw - 24px); } }
+"""
+
+_TOUR_JS = """
+var pwin, pdoc;
+try { pwin = window.parent; pdoc = pwin.document; } catch (e) { return; }
+if (!pdoc || !pdoc.body) return;
+
+if (!pdoc.getElementById('wqt-style')) {
+    var st = pdoc.createElement('style');
+    st.id = 'wqt-style'; st.textContent = TOUR_CSS;
+    pdoc.head.appendChild(st);
+}
+
+/* Which iframe am I? Needed because a step targeting a rail button measures
+   that button in *this* document's coordinates, while the overlay is painted
+   in the parent's - the two differ by wherever the map iframe sits. */
+var frameEl = null;
+var frames = pdoc.querySelectorAll('iframe');
+for (var i = 0; i < frames.length; i++) {
+    try { if (frames[i].contentWindow === window) { frameEl = frames[i]; break; } } catch (e) {}
+}
+
+/* Streamlit reruns rebuild this iframe but not the parent body, so an overlay
+   from the previous run would still be sitting there. Replace, don't append. */
+var prev = pdoc.getElementById('wqt-overlay');
+if (prev) prev.remove();
+
+var ov = pdoc.createElement('div');
+ov.id = 'wqt-overlay';
+ov.className = 'wqt-overlay';
+ov.innerHTML =
+    '<div class="wqt-mask" data-m="t"></div><div class="wqt-mask" data-m="b"></div>' +
+    '<div class="wqt-mask" data-m="l"></div><div class="wqt-mask" data-m="r"></div>' +
+    '<div class="wqt-ring"></div>' +
+    '<div class="wqt-card"><button class="wqt-skip" aria-label="' + UI.close + '">&times;</button>' +
+    '<div class="wqt-step"></div><div class="wqt-title"></div><div class="wqt-body"></div>' +
+    '<div class="wqt-actions"><span class="wqt-dots"></span>' +
+    '<button class="wqt-btn wqt-back"></button>' +
+    '<button class="wqt-btn wqt-next"></button></div></div>';
+pdoc.body.appendChild(ov);
+
+var masks = {}, ring = ov.querySelector('.wqt-ring'), card = ov.querySelector('.wqt-card');
+['t', 'b', 'l', 'r'].forEach(function (k) { masks[k] = ov.querySelector('[data-m="' + k + '"]'); });
+var elStep = ov.querySelector('.wqt-step'), elTitle = ov.querySelector('.wqt-title');
+var elBody = ov.querySelector('.wqt-body'), elDots = ov.querySelector('.wqt-dots');
+var btnBack = ov.querySelector('.wqt-back'), btnNext = ov.querySelector('.wqt-next');
+
+function elFor(step) {
+    return step.frame ? document.querySelector(step.sel) : pdoc.querySelector(step.sel);
+}
+
+function rectFor(step) {
+    var el = elFor(step);
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    var dx = 0, dy = 0;
+    if (step.frame) {
+        if (!frameEl) return null;
+        var f = frameEl.getBoundingClientRect();
+        dx = f.left; dy = f.top;
+    }
+    return { left: r.left + dx, top: r.top + dy, width: r.width, height: r.height };
+}
+
+function px(el, o) { for (var k in o) { el.style[k] = o[k]; } }
+
+function paint(rc, targetEl) {
+    var pad = 7;
+    var VW = pwin.innerWidth, VH = pwin.innerHeight;
+    var x = Math.max(0, rc.left - pad), y = Math.max(0, rc.top - pad);
+    var w = rc.width + pad * 2, h = rc.height + pad * 2;
+    px(masks.t, { left: '0px', top: '0px', width: VW + 'px', height: y + 'px' });
+    px(masks.b, { left: '0px', top: (y + h) + 'px', width: VW + 'px', height: Math.max(0, VH - y - h) + 'px' });
+    px(masks.l, { left: '0px', top: y + 'px', width: x + 'px', height: h + 'px' });
+    px(masks.r, { left: (x + w) + 'px', top: y + 'px', width: Math.max(0, VW - x - w) + 'px', height: h + 'px' });
+    px(ring, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+
+    var cw = card.offsetWidth, ch = card.offsetHeight;
+    /* Keep the card off the sidebar. It now paints above the panel rather than
+       under it, so this is no longer about being readable - it is that a card
+       lying half over the sidebar looks like a rendering fault. The step whose
+       subject IS the sidebar is exempt, or it would have nowhere to sit. */
+    var minX = 8;
+    var sb = pdoc.querySelector('[data-testid="stSidebar"]');
+    if (sb && !(targetEl && sb.contains(targetEl))) {
+        var sr = sb.getBoundingClientRect();
+        if (sr.width > 1 && sr.right > minX) { minX = sr.right + 10; }
+    }
+    var maxX = Math.max(minX, VW - cw - 8);
+    var cx = Math.min(Math.max(minX, rc.left + rc.width / 2 - cw / 2), maxX);
+    var below = y + h + 12, above = y - ch - 12;
+    var cy = (below + ch <= VH - 8) ? below : (above >= 8 ? above : Math.max(8, (VH - ch) / 2));
+    px(card, { left: cx + 'px', top: cy + 'px' });
+}
+
+var live = [], idx = 0;
+
+function render() {
+    var s = live[idx], rc = rectFor(s);
+    if (!rc) { return stop(); }
+    elStep.textContent = UI.step;
+    elTitle.textContent = s.title;
+    elBody.innerHTML = s.body;
+    elDots.textContent = (idx + 1) + ' / ' + live.length;
+    btnBack.textContent = UI.back;
+    btnBack.hidden = (idx === 0);
+    btnNext.textContent = (idx === live.length - 1) ? UI.done : UI.next;
+    paint(rc, elFor(s));
+}
+
+function start() {
+    /* Resolved fresh on every run: which controls exist depends on the
+       viewport (the sidebar is collapsed on a phone) and on which layers the
+       caller supplied, so a step whose target is not on screen is dropped
+       rather than shown pointing at nothing. */
+    live = STEPS.filter(function (s) { return !!rectFor(s); });
+    if (!live.length) return;
+    idx = 0;
+    ov.classList.add('wqt-open');
+    render();
+}
+
+function stop() {
+    ov.classList.remove('wqt-open');
+}
+
+btnNext.addEventListener('click', function () {
+    if (idx >= live.length - 1) { stop(); } else { idx++; render(); }
+});
+btnBack.addEventListener('click', function () { if (idx > 0) { idx--; render(); } });
+ov.querySelector('.wqt-skip').addEventListener('click', stop);
+['t', 'b', 'l', 'r'].forEach(function (k) { masks[k].addEventListener('click', stop); });
+
+var onKey = function (e) {
+    if (!ov.classList.contains('wqt-open')) return;
+    if (e.key === 'Escape') { stop(); }
+    else if (e.key === 'ArrowRight') { btnNext.click(); }
+    else if (e.key === 'ArrowLeft') { btnBack.click(); }
+};
+pdoc.addEventListener('keydown', onKey);
+document.addEventListener('keydown', onKey);
+pwin.addEventListener('resize', function () { if (ov.classList.contains('wqt-open')) render(); });
+
+var trigger = mapEl.querySelector('[data-wq-tour]');
+if (trigger) { trigger.addEventListener('click', start); }
+
+/* Every visit runs it unprompted, and the "?" button replays it on demand.
+
+   "Visit" has to mean a page load rather than a script run, because Streamlit
+   rebuilds this iframe on every rerun - once per date change - and a naive
+   flag would restart the walkthrough each time the reader moved the timeline.
+   The marker therefore lives on the parent window object: created fresh by a
+   real load or reload, and surviving every rerun in between. Deliberately not
+   localStorage, which would remember across visits and so only ever show it
+   once, and not sessionStorage, which survives a reload.
+
+   It is claimed when the tour actually opens, not when this script runs, so
+   that a rerun landing during start-up does not consume the one showing. */
+try {
+    if (pwin.__wqTourShown !== true) {
+        pwin.setTimeout(function () {
+            if (pwin.__wqTourShown === true) return;
+            pwin.__wqTourShown = true;
+            start();
+        }, 1400);
+    }
+} catch (e) {}
+"""
+
+
+def add_guided_tour(fmap, steps, ui, font_stack="'Poppins', 'Noto Sans Thai', sans-serif"):
+    """Attach the step-by-step walkthrough that the rail's "?" button replays.
+
+    steps: list of {"sel", "frame", "title", "body"}. `sel` is a CSS selector
+        and `frame` says which document to run it against - True for controls
+        drawn inside the map iframe (the rail, the zoom buttons), False for
+        the ones Streamlit renders around it (the timeline, the language
+        toggle, the sidebar).
+    ui: {"step", "next", "back", "done", "close"} - the walkthrough's own
+        chrome, in the caller's language.
+
+    Why the overlay is built in the parent document rather than here: half the
+    things worth pointing at are not in this iframe. An overlay rendered
+    inside it is clipped to it, so it could never dim the page around the
+    timeline bar or put a ring on the EN/TH toggle. The parent is same-origin,
+    so the overlay is created there and in-frame targets have this iframe's
+    offset added to their coordinates (see rectFor).
+    """
+    js = (
+        "(function () {\n"
+        "var mapEl = document.getElementById('" + fmap.get_name() + "');\n"
+        "if (!mapEl) return;\n"
+        "var STEPS = " + json.dumps(steps) + ";\n"
+        "var UI = " + json.dumps(ui) + ";\n"
+        "var TOUR_CSS = " + json.dumps(_TOUR_CSS.replace("__WQ_FONT__", font_stack)) + ";\n"
+        + _TOUR_JS +
+        "\n})();"
+    )
     _RawScript(js).add_to(fmap)
 
 

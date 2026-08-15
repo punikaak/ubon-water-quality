@@ -228,6 +228,118 @@ TRANSLATIONS = {
             "the date shown beside it."
         ),
         "info_label": "Information",
+        "info_howto": "How to Use This Map",
+        "info_use_legend": (
+            "<b>Legend</b> - opens the colour key: what each turbidity colour means, "
+            "and the symbols used for stations, water and boundaries."
+        ),
+        "info_use_stations": (
+            "<b>PCD Stations</b> - the ground monitoring stations. Each dot is coloured by "
+            "what PCD actually measured there. Click one for its readings, the place it sits "
+            "in, and the date the sample was taken."
+        ),
+        "info_use_boundaries": (
+            "<b>Province</b> and <b>District</b> - administrative outlines for the whole "
+            "country. Hover or tap a line to see the name."
+        ),
+        "info_use_turbidity": (
+            "<b>Turbidity</b> - the satellite turbidity layer for the selected date, and the "
+            "main thing this map shows. Colours follow the scale in the Legend."
+        ),
+        "info_use_water": (
+            "<b>Water</b> - the water bodies found in that date's composite: rivers, "
+            "reservoirs and ponds."
+        ),
+        "info_use_basemap": (
+            "<b>Base Map</b> - opens a picker for the background map: Light, Dark, Classic, "
+            "Terrain or Satellite."
+        ),
+        "info_use_info": "<b>Information</b> - opens this window.",
+        "info_use_zoom": (
+            "<b>Zoom</b> - zoom the map in and out. Scrolling and pinching work as well, and "
+            "the view you leave it at is kept when the date changes."
+        ),
+        "info_use_panel": (
+            "<b>Side panel</b> - opens the panel holding the province summary, the per-station "
+            "turbidity trend, the Mun River level, and the district ranking."
+        ),
+        "info_use_timeline": (
+            "<b>Timeline</b> - drag the slider to move between composite dates; the arrows step "
+            "one date back or forward. Everything on the page follows the date chosen here."
+        ),
+        "info_use_tap": (
+            "<b>Tap the map</b> - reads the turbidity value at that exact point. Only works "
+            "where water was detected, and needs no page reload."
+        ),
+        "info_use_lang": "<b>EN / TH</b> - switches the whole interface between English and Thai.",
+        "info_use_note": (
+            "An icon shown in grey means that layer is currently hidden - tap it to bring "
+            "it back."
+        ),
+        # --- Guided tour ---
+        "tour_label": "Guide",
+        "tour_step": "Guide",
+        "tour_next": "Next",
+        "tour_back": "Back",
+        "tour_done": "Done",
+        "tour_close": "Close",
+        "tour_t_turbidity": "The turbidity layer",
+        "tour_b_turbidity": (
+            "This is the main layer: satellite-estimated turbidity for the selected date. "
+            "Tap this button to hide or show it."
+        ),
+        "tour_t_legend": "The legend",
+        "tour_b_legend": (
+            "Opens the colour key - which colour means which turbidity level, plus the "
+            "symbols for stations, water and boundaries."
+        ),
+        "tour_t_stations": "Ground stations",
+        "tour_b_stations": (
+            "PCD's monitoring stations. Each dot is coloured by what was actually measured "
+            "there, so it is a check on the satellite layer rather than a repeat of it. "
+            "Click a dot for its readings and the date it was sampled."
+        ),
+        "tour_t_boundaries": "Province and district lines",
+        "tour_b_boundaries": (
+            "Administrative outlines for the whole country. Hover or tap a line for the "
+            "name. The district button below does the same for amphoe."
+        ),
+        "tour_t_water": "Water bodies",
+        "tour_b_water": "Where water was detected in that date's image - rivers, reservoirs and ponds.",
+        "tour_t_basemap": "The background map",
+        "tour_b_basemap": "Switches the map underneath: Light, Dark, Classic, Terrain or Satellite.",
+        "tour_t_zoom": "Zoom",
+        "tour_b_zoom": (
+            "Zoom in and out; scrolling and pinching work too. Wherever you leave the view, "
+            "it stays there when you change the date."
+        ),
+        "tour_t_tap": "Tap the map for a reading",
+        "tour_b_tap": (
+            "Tap anywhere water was detected and the exact turbidity value at that point "
+            "appears - no waiting, no page reload."
+        ),
+        "tour_t_timeline": "The timeline",
+        "tour_b_timeline": (
+            "Drag the slider to move between dates, or step one at a time with the arrows. "
+            "Every number on this page follows the date you pick here."
+        ),
+        "tour_t_panel": "The side panel",
+        "tour_b_panel": (
+            "Holds the province summary, each station's turbidity trend, the Mun River "
+            "level, and the district ranking."
+        ),
+        "tour_t_lang": "English and Thai",
+        "tour_b_lang": "Switches the entire interface between the two languages.",
+        "tour_t_info": "Where the data comes from",
+        "tour_b_info": (
+            "Opens the full reference: what every button does, and the source and accuracy "
+            "of every number shown."
+        ),
+        "tour_t_replay": "Run this guide again",
+        "tour_b_replay": (
+            "That is the tour. This \"?\" button is here whenever you want to walk through "
+            "it again."
+        ),
         "info_data_source": "Data Source",
         "info_src_turbidity": (
             "<b>Turbidity (satellite):</b> Sentinel-2 Level-2A surface reflectance "
@@ -327,6 +439,114 @@ TRANSLATIONS = {
             "ส่วนค่าตรวจวัดคือค่าที่กรมควบคุมมลพิษวัดในวันที่ใกล้เคียงที่สุด ตามวันที่แสดงกำกับไว้"
         ),
         "info_label": "ข้อมูล",
+        "info_howto": "วิธีใช้งานแผนที่",
+        "info_use_legend": (
+            "<b>คำอธิบาย</b> - เปิดคำอธิบายสัญลักษณ์ ว่าสีแต่ละสีของความขุ่นหมายถึงระดับใด "
+            "รวมถึงสัญลักษณ์ของสถานี แหล่งน้ำ และเส้นขอบเขต"
+        ),
+        "info_use_stations": (
+            "<b>สถานีคุณภาพน้ำ</b> - สถานีตรวจวัดภาคพื้นดิน สีของแต่ละจุดมาจากค่าที่กรมควบคุมมลพิษ"
+            "ตรวจวัดได้จริง ณ จุดนั้น กดที่จุดเพื่อดูค่าที่วัดได้ ตำแหน่งที่ตั้ง และวันที่เก็บตัวอย่าง"
+        ),
+        "info_use_boundaries": (
+            "<b>จังหวัด</b> และ <b>อำเภอ</b> - เส้นขอบเขตการปกครองทั่วประเทศ "
+            "ชี้หรือแตะที่เส้นเพื่อดูชื่อ"
+        ),
+        "info_use_turbidity": (
+            "<b>ความขุ่น</b> - ชั้นข้อมูลความขุ่นจากดาวเทียมของวันที่เลือก ซึ่งเป็นข้อมูลหลักของแผนที่นี้ "
+            "สีเป็นไปตามเกณฑ์ในคำอธิบายสัญลักษณ์"
+        ),
+        "info_use_water": (
+            "<b>แหล่งน้ำ</b> - พื้นที่ที่ตรวจพบว่าเป็นน้ำในภาพของวันนั้น ทั้งแม่น้ำ อ่างเก็บน้ำ และหนองบึง"
+        ),
+        "info_use_basemap": (
+            "<b>แผนที่ฐาน</b> - เปิดตัวเลือกแผนที่พื้นหลัง ได้แก่ สว่าง มืด คลาสสิก ภูมิประเทศ "
+            "และภาพถ่ายดาวเทียม"
+        ),
+        "info_use_info": "<b>ข้อมูล</b> - เปิดหน้าต่างนี้",
+        "info_use_zoom": (
+            "<b>ย่อ/ขยาย</b> - ย่อหรือขยายแผนที่ จะใช้การเลื่อนเมาส์หรือนิ้วก็ได้ "
+            "และมุมมองที่ตั้งไว้จะคงอยู่เมื่อเปลี่ยนวันที่"
+        ),
+        "info_use_panel": (
+            "<b>แผงด้านข้าง</b> - เปิดแผงที่รวมภาพรวมระดับจังหวัด แนวโน้มความขุ่นรายสถานี "
+            "ระดับน้ำแม่น้ำมูล และอันดับความขุ่นรายอำเภอ"
+        ),
+        "info_use_timeline": (
+            "<b>แถบเวลา</b> - ลากแถบเลื่อนเพื่อเปลี่ยนวันที่ของภาพถ่าย ส่วนปุ่มลูกศรใช้เลื่อนทีละวัน "
+            "ข้อมูลทุกส่วนบนหน้าจะเปลี่ยนตามวันที่ที่เลือกไว้ตรงนี้"
+        ),
+        "info_use_tap": (
+            "<b>แตะบนแผนที่</b> - อ่านค่าความขุ่น ณ จุดที่แตะ ใช้ได้เฉพาะบริเวณที่ตรวจพบน้ำ "
+            "และไม่ต้องโหลดหน้าใหม่"
+        ),
+        "info_use_lang": "<b>EN / TH</b> - สลับภาษาของทั้งหน้าระหว่างภาษาอังกฤษกับภาษาไทย",
+        "info_use_note": (
+            "สัญลักษณ์ที่เป็นสีเทาหมายถึงชั้นข้อมูลนั้นถูกซ่อนอยู่ แตะเพื่อเปิดกลับมา"
+        ),
+        # --- Guided tour ---
+        "tour_label": "วิธีใช้",
+        "tour_step": "แนะนำการใช้งาน",
+        "tour_next": "ถัดไป",
+        "tour_back": "ย้อนกลับ",
+        "tour_done": "เสร็จสิ้น",
+        "tour_close": "ปิด",
+        "tour_t_turbidity": "ชั้นข้อมูลความขุ่น",
+        "tour_b_turbidity": (
+            "นี่คือข้อมูลหลักของแผนที่ - ค่าความขุ่นที่ประเมินจากดาวเทียมของวันที่เลือกไว้ "
+            "แตะปุ่มนี้เพื่อซ่อนหรือแสดง"
+        ),
+        "tour_t_legend": "คำอธิบายสัญลักษณ์",
+        "tour_b_legend": (
+            "เปิดคำอธิบายสี ว่าสีใดหมายถึงความขุ่นระดับใด รวมถึงสัญลักษณ์ของสถานี "
+            "แหล่งน้ำ และเส้นขอบเขต"
+        ),
+        "tour_t_stations": "สถานีตรวจวัดภาคพื้นดิน",
+        "tour_b_stations": (
+            "สถานีของกรมควบคุมมลพิษ สีของแต่ละจุดมาจากค่าที่ตรวจวัดได้จริง ณ จุดนั้น "
+            "จึงใช้ตรวจสอบข้อมูลดาวเทียมได้ ไม่ใช่การแสดงค่าเดียวกันซ้ำ "
+            "กดที่จุดเพื่อดูค่าที่วัดได้และวันที่เก็บตัวอย่าง"
+        ),
+        "tour_t_boundaries": "เส้นขอบเขตจังหวัดและอำเภอ",
+        "tour_b_boundaries": (
+            "เส้นขอบเขตการปกครองทั่วประเทศ ชี้หรือแตะที่เส้นเพื่อดูชื่อ "
+            "ส่วนปุ่มอำเภอที่อยู่ถัดลงไปก็ใช้งานแบบเดียวกัน"
+        ),
+        "tour_t_water": "แหล่งน้ำ",
+        "tour_b_water": "พื้นที่ที่ตรวจพบว่าเป็นน้ำในภาพของวันนั้น ทั้งแม่น้ำ อ่างเก็บน้ำ และหนองบึง",
+        "tour_t_basemap": "แผนที่พื้นหลัง",
+        "tour_b_basemap": "สลับแผนที่ด้านล่างได้ ทั้งแบบสว่าง มืด คลาสสิก ภูมิประเทศ และภาพถ่ายดาวเทียม",
+        "tour_t_zoom": "ย่อและขยาย",
+        "tour_b_zoom": (
+            "ย่อหรือขยายแผนที่ จะใช้การเลื่อนเมาส์หรือนิ้วก็ได้ "
+            "และมุมมองที่ตั้งค้างไว้จะคงอยู่แม้เปลี่ยนวันที่"
+        ),
+        "tour_t_tap": "แตะบนแผนที่เพื่ออ่านค่า",
+        "tour_b_tap": (
+            "แตะตรงบริเวณที่ตรวจพบน้ำ แล้วค่าความขุ่น ณ จุดนั้นจะแสดงขึ้นมาทันที "
+            "ไม่ต้องรอและไม่ต้องโหลดหน้าใหม่"
+        ),
+        "tour_t_timeline": "แถบเวลา",
+        "tour_b_timeline": (
+            "ลากแถบเลื่อนเพื่อเปลี่ยนวันที่ หรือกดปุ่มลูกศรเพื่อเลื่อนทีละวัน "
+            "ข้อมูลทุกตัวเลขบนหน้านี้จะเปลี่ยนตามวันที่ที่เลือกตรงนี้"
+        ),
+        "tour_t_panel": "แผงด้านข้าง",
+        "tour_b_panel": (
+            "รวมภาพรวมระดับจังหวัด แนวโน้มความขุ่นของแต่ละสถานี ระดับน้ำแม่น้ำมูล "
+            "และอันดับความขุ่นรายอำเภอ"
+        ),
+        "tour_t_lang": "ภาษาไทยและอังกฤษ",
+        "tour_b_lang": "สลับภาษาของทั้งหน้าระหว่างสองภาษา",
+        "tour_t_info": "ที่มาของข้อมูล",
+        "tour_b_info": (
+            "เปิดหน้าข้อมูลฉบับเต็ม ทั้งหน้าที่ของทุกปุ่ม แหล่งที่มา "
+            "และความแม่นยำของตัวเลขทุกตัวที่แสดง"
+        ),
+        "tour_t_replay": "ดูคำแนะนำนี้อีกครั้ง",
+        "tour_b_replay": (
+            "จบการแนะนำแล้ว หากต้องการดูใหม่อีกครั้ง กดปุ่ม \"?\" นี้ได้ตลอดเวลา"
+        ),
         "info_data_source": "แหล่งที่มาของข้อมูล",
         "info_src_turbidity": (
             "<b>ความขุ่นจากดาวเทียม:</b> ค่าการสะท้อนแสงพื้นผิวจาก Sentinel-2 ระดับ 2A "
@@ -364,7 +584,10 @@ TRANSLATIONS = {
 }
 
 if "lang" not in st.session_state:
-    st.session_state.lang = "en"
+    # Thai by default: the audience is in Ubon Ratchathani and the data is
+    # Thai (PCD stations, RID gauges, Thai administrative boundaries). English
+    # stays one tap away on the EN/TH switch.
+    st.session_state.lang = "th"
 LANG = st.session_state.lang
 T = TRANSLATIONS[LANG]
 
@@ -467,13 +690,30 @@ st.markdown(
        anchored to what's actually visible. */
     .block-container {{ padding: 0; max-width: 100%; position: relative;
         height: 100vh; overflow: hidden; }}
+    /* The white strip that used to sit above the map. This column holds three
+       things - the floating title, the map, and the timeline bar - and the
+       first and last are absolutely positioned, so they collapse to zero
+       height. Streamlit's 16px inter-element gap does not collapse with them,
+       leaving 2 x 16px of blank page stacked on top of the map.
+       The child combinator is load-bearing: only this outermost column wants
+       no gap. The timeline bar is itself a vertical block further down the
+       tree, and a descendant selector here flattened its internal spacing
+       too, collapsing the date row onto the slider. */
+    .block-container > [data-testid="stVerticalBlock"] {{ gap: 0 !important; }}
     /* width:100% - streamlit_folium sizes the iframe from the full page
        width, ignoring the sidebar, so on desktop it was 1680px wide starting
        at x=300 and overflowed the viewport by exactly the sidebar's 300px.
        That rendered the map's right-hand 300px off-screen and took the
        bottom-right OSM credit with it. Constraining it to its actual
        container fixes both. */
-    iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh - 4px) !important;
+    /* height: the map used to start 32px down (see the gap rule above) and run
+       to 100vh - 4px, putting its bottom edge 28px below the viewport. Every
+       bottom-anchored control inside it - zoom, Information, the OSM credit -
+       was measured against that edge. Now that it starts at 0, the +28px keeps
+       that edge in exactly the same place, so those offsets stay correct
+       instead of all needing to be re-measured. The excess is clipped by
+       .block-container's overflow:hidden, as it was before. */
+    iframe[title="streamlit_folium.st_folium"] {{ height: calc(100vh + 28px) !important;
         width: 100% !important; min-height: 380px; display: block; }}
 
     html, body, .stApp {{ background: {P['app_bg']}; }}
@@ -674,7 +914,7 @@ st.markdown(
        relative to the zoom buttons. */
     [data-testid="stSidebarCollapseButton"] {{
         position: fixed !important; left: 315px !important; bottom: 114px !important;
-        width: 40px !important; height: 40px !important; z-index: 1002 !important; }}
+        width: 32px !important; height: 32px !important; z-index: 1002 !important; }}
     [data-testid="stExpandSidebarButton"] {{
         position: fixed !important; left: 25px !important; bottom: 114px !important;
         z-index: 1002 !important; }}
@@ -687,14 +927,14 @@ st.markdown(
     [data-testid="stSidebarCollapseButton"] button,
     button[data-testid="stSidebarCollapseButton"],
     [data-testid="stExpandSidebarButton"] button,
-    /* 40px, matching the map's Information button directly above it - the two
+    /* 32px, matching the map's Information button directly above it - the two
        sit in the same bottom-left column, so a size difference between them
-       read as a mistake rather than a hierarchy. Both grew with the layer
-       rail, and the zoom pair below is 38px, so the whole column is 38-40px
-       now instead of the old 30-34px. */
+       reads as a mistake rather than a hierarchy. The whole column settled
+       here (zoom is 30px) after the rail was cut back twice for being too
+       heavy on the map, then nudged back up once for being too small. */
     button[data-testid="stExpandSidebarButton"] {{
-        width: 40px !important; height: 40px !important; border-radius: 50% !important;
-        background: #ffffff url("{SIDEBAR_ICON}") center / 23px 23px no-repeat !important;
+        width: 32px !important; height: 32px !important; border-radius: 50% !important;
+        background: #ffffff url("{SIDEBAR_ICON}") center / 19px 19px no-repeat !important;
         box-shadow: 0 2px 10px rgba(0,0,0,0.22) !important; border: none !important;
         padding: 0 !important; }}
     [data-testid="stSidebarCollapseButton"] button:hover,
@@ -999,9 +1239,69 @@ def build_legend_html():
     )
 
 
+def _howto_row(face, color, text, word=False):
+    """One control, explained: its own face on a coloured disc, then what it does.
+
+    `word` marks a face that is text rather than a glyph, which needs the
+    smaller type treatment. Passed explicitly rather than sniffed from the
+    string - base64 data URIs contain "+" and would have been misread as the
+    zoom buttons.
+    """
+    cls = " wq-howto-word" if word else ""
+    return (f'<div class="wq-howto-row">'
+            f'<span class="wq-howto-icon{cls}" style="background:{color}">{face}</span>'
+            f'<span>{text}</span></div>')
+
+
+def _rail_row(key, text):
+    """A how-to row for a control that lives on the layer rail, drawn with the
+    rail's own glyph and accent colour (see map_controls.control_icon)."""
+    color, glyph = map_controls.control_icon(key)
+    return _howto_row(glyph, color, text)
+
+
+def build_how_to_html():
+    """The how-to list: every button and symbol on the map, what it is, and
+    what it shows.
+
+    Each row carries the control's real face rather than a description of it -
+    the rail glyphs come from map_controls.control_icon, and the panel and
+    arrow buttons reuse the very data URIs the CSS paints them with. Nothing
+    here is a redrawing of an icon, so none of it can end up showing a symbol
+    the map has stopped using.
+    """
+    img = '<img src="{}" alt="">'
+    rows = [
+        _rail_row("legend", T["info_use_legend"]),
+        _rail_row("stations", T["info_use_stations"]),
+        _rail_row("province", T["info_use_boundaries"]),
+        _rail_row("turbidity", T["info_use_turbidity"]),
+        _rail_row("water", T["info_use_water"]),
+        _rail_row("basemap", T["info_use_basemap"]),
+        _rail_row("info", T["info_use_info"]),
+        _howto_row("+ &minus;", "#5b6b7c", T["info_use_zoom"], word=True),
+        # The panel button's face is the turbidity scale itself and the arrows
+        # are drawn navy - both are white-on-map buttons, but a white disc
+        # inside this white box would be an invisible one, so they sit on the
+        # palest grey that still separates them from the card.
+        _howto_row(img.format(SIDEBAR_ICON), "#eef1f5", T["info_use_panel"]),
+        _howto_row(img.format(ARROW_NEXT_ICON), "#eef1f5", T["info_use_timeline"]),
+        _howto_row(
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+            'stroke-linecap="round"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/>'
+            '<circle cx="12" cy="10" r="2.4"/></svg>', "#2b2b3a", T["info_use_tap"]),
+        _howto_row("TH", HEADER_NAVY, T["info_use_lang"], word=True),
+    ]
+    return (
+        f'<div class="wq-info-section">{T["info_howto"]}</div>'
+        '<div class="wq-info-box">' + "".join(rows) + '</div>'
+        f'<div class="wq-info-note">{T["info_use_note"]}</div>'
+    )
+
+
 def build_info_html():
-    """Body of the Information modal - where every number on this map comes
-    from, in the current language.
+    """Body of the Information modal - how to work the map, then where every
+    number on it comes from, in the current language.
 
     The model's accuracy figures are pulled from turbidity_model rather than
     written into the translation strings, so retraining updates what the
@@ -1015,7 +1315,10 @@ def build_info_html():
         T["info_src_coverage"].format(window=T["window_label"]),
     ]
     return (
-        f'<div class="wq-info-section">{T["info_data_source"]}</div>'
+        # How-to first: a visitor who has just opened the map needs to work it
+        # before they need its provenance.
+        build_how_to_html()
+        + f'<div class="wq-info-section">{T["info_data_source"]}</div>'
         '<div class="wq-info-box">'
         + "".join(f'<p class="wq-info-row">{r}</p>' for r in rows)
         + '</div>'
@@ -1678,6 +1981,26 @@ function fit() {{
 window.addEventListener('load', fit);
 window.addEventListener('resize', fit);
 fit();
+// Everything above measures at moments we happen to know about. These cover
+// the moments we do not.
+//
+// fit() is only correct if it runs after the layout it is measuring has
+// settled, and several things move it afterwards: the webfont arrives and
+// reflows the label and hint; the sidebar is resized by the reader; a rerun
+// re-mounts this frame while the sidebar is scrolled and the first measure
+// lands mid-layout. Any of those leaves the reserved box at its initial
+// guess with the difference showing as blank sidebar under the map.
+//
+// A ResizeObserver on the content is the general answer - it fires whenever
+// the measured thing actually changes size, whatever caused it.
+if (window.ResizeObserver) {{
+  const ro = new ResizeObserver(function () {{ fit(); }});
+  ro.observe(document.getElementById('wrap'));
+  ro.observe(document.getElementById('hint'));
+}}
+// The font in particular changes metrics after first paint, and on a cached
+// font this resolves immediately rather than costing anything.
+if (document.fonts && document.fonts.ready) {{ document.fonts.ready.then(fit); }}
 </script>
 """
 
@@ -2004,9 +2327,49 @@ map_controls.add_layer_rail(
     legend_label=T["legend_label"], basemap_label=T["basemap_label"],
     font_stack=FONT_STACK,
     info_html=build_info_html(), info_label=T["info_label"],
+    tour_label=T["tour_label"],
 )
 map_controls.add_view_persistence(fmap, [[b_miny, b_minx], [b_maxy, b_maxx]])
 map_controls.add_zoom_control(fmap)
+
+
+def tour_steps():
+    """The walkthrough, in the order a first-time reader meets the map.
+
+    Ordered by what the page is *for* rather than by where the buttons sit:
+    the turbidity layer is the point of the map, so it goes first, and the
+    controls that only change how it is presented come after. Each entry says
+    which document its selector belongs to - see map_controls.add_guided_tour.
+    """
+    rail = ".wq-icon-btn[data-wq-overlay='{}']"
+    steps = [
+        (rail.format("turbidity"), True, "turbidity"),
+        ('.wq-icon-btn[data-wq-toggle="legend"]', True, "legend"),
+        (rail.format("stations"), True, "stations"),
+        (rail.format("province"), True, "boundaries"),
+        (rail.format("water"), True, "water"),
+        ('.wq-icon-btn[data-wq-toggle="basemap"]', True, "basemap"),
+        (".leaflet-control-zoom", True, "zoom"),
+        # The map surface itself - there is no button for tap-to-read, so the
+        # ring goes round the thing you are being told to tap.
+        (".leaflet-container", True, "tap"),
+        (".st-key-timeline_bar", False, "timeline"),
+        ('[data-testid="stSidebar"]', False, "panel"),
+        (".st-key-lang_toggle", False, "lang"),
+        (".wq-info-fab", True, "info"),
+        ("[data-wq-tour]", True, "replay"),
+    ]
+    return [{"sel": sel, "frame": frame,
+             "title": T[f"tour_t_{key}"], "body": T[f"tour_b_{key}"]}
+            for sel, frame, key in steps]
+
+
+map_controls.add_guided_tour(
+    fmap, tour_steps(),
+    {"step": T["tour_step"], "next": T["tour_next"], "back": T["tour_back"],
+     "done": T["tour_done"], "close": T["tour_close"]},
+    font_stack=FONT_STACK,
+)
 map_controls.compact_attribution(fmap)
 # After the view is restored, so the first pass measures the zoom the reader
 # actually lands on rather than folium's initial one.
