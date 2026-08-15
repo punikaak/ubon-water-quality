@@ -1099,18 +1099,25 @@ function paint(rc, targetEl) {
     px(ring, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
 
     var cw = card.offsetWidth, ch = card.offsetHeight;
-    /* Keep the card off the sidebar. It now paints above the panel rather than
-       under it, so this is no longer about being readable - it is that a card
-       lying half over the sidebar looks like a rendering fault. The step whose
-       subject IS the sidebar is exempt, or it would have nowhere to sit. */
+    /* Keep the card off the sidebar - a card lying half over it reads as a
+       rendering fault, and it paints above the panel now so this is about
+       appearance rather than legibility. The step whose subject IS the sidebar
+       is exempt, or it would have nowhere to sit.
+       Only dodge if the card actually fits in what is left, though. On a phone
+       the sidebar covers most of the width, and insisting on clearing it
+       pushed the card clean off the right edge of the screen. Staying on
+       screen outranks staying off the sidebar. */
     var minX = 8;
     var sb = pdoc.querySelector('[data-testid="stSidebar"]');
     if (sb && !(targetEl && sb.contains(targetEl))) {
         var sr = sb.getBoundingClientRect();
-        if (sr.width > 1 && sr.right > minX) { minX = sr.right + 10; }
+        if (sr.width > 1 && sr.right > minX && (VW - sr.right - 18) >= cw) {
+            minX = sr.right + 10;
+        }
     }
-    var maxX = Math.max(minX, VW - cw - 8);
+    var maxX = Math.max(8, VW - cw - 8);
     var cx = Math.min(Math.max(minX, rc.left + rc.width / 2 - cw / 2), maxX);
+    cx = Math.max(8, Math.min(cx, maxX));
     var below = y + h + 12, above = y - ch - 12;
     var cy = (below + ch <= VH - 8) ? below : (above >= 8 ? above : Math.max(8, (VH - ch) / 2));
     px(card, { left: cx + 'px', top: cy + 'px' });
