@@ -37,7 +37,11 @@ import rid_streamflow as rid
 import turbidity_model as tm
 import turbidity_style as style
 
-st.set_page_config(page_title="Mekong Water Quality", layout="wide")
+# initial_sidebar_state: the map is the point of this page, so it opens
+# full-bleed with the panel folded away. The button that brings the panel back
+# sits in the bottom-left stack, and the guided tour introduces it.
+st.set_page_config(page_title="Mekong Water Quality", layout="wide",
+                   initial_sidebar_state="collapsed")
 
 VALIDATION_CSV = "Sentinel2_Extract_Ubon_New.csv"
 HISTORY_CACHE = "ubon_history.json"  # written by precompute_history.py
@@ -323,10 +327,13 @@ TRANSLATIONS = {
             "Drag the slider to move between dates, or step one at a time with the arrows. "
             "Every number on this page follows the date you pick here."
         ),
-        "tour_t_panel": "The side panel",
+        "tour_t_panel": "Open the side panel",
         "tour_b_panel": (
-            "Holds the province summary, each station's turbidity trend, the Mun River "
-            "level, and the district ranking."
+            "This button opens the panel, which the map starts with folded away. Inside: "
+            "the province-wide turbidity for the selected date and how it moved from the "
+            "week before, a turbidity trend for any station you pick, the Mun River water "
+            "level, and the district ranking - every amphoe shaded by its mean turbidity, "
+            "tap one for its reading. The same button closes it again."
         ),
         "tour_t_lang": "English and Thai",
         "tour_b_lang": "Switches the entire interface between the two languages.",
@@ -531,10 +538,13 @@ TRANSLATIONS = {
             "ลากแถบเลื่อนเพื่อเปลี่ยนวันที่ หรือกดปุ่มลูกศรเพื่อเลื่อนทีละวัน "
             "ข้อมูลทุกตัวเลขบนหน้านี้จะเปลี่ยนตามวันที่ที่เลือกตรงนี้"
         ),
-        "tour_t_panel": "แผงด้านข้าง",
+        "tour_t_panel": "เปิดแผงด้านข้าง",
         "tour_b_panel": (
-            "รวมภาพรวมระดับจังหวัด แนวโน้มความขุ่นของแต่ละสถานี ระดับน้ำแม่น้ำมูล "
-            "และอันดับความขุ่นรายอำเภอ"
+            "ปุ่มนี้เปิดแผงด้านข้าง ซึ่งตอนเปิดเว็บจะถูกพับเก็บไว้ ข้างในมี "
+            "ค่าความขุ่นเฉลี่ยทั้งจังหวัดของวันที่เลือกพร้อมการเปลี่ยนแปลงเทียบกับสัปดาห์ก่อน "
+            "กราฟแนวโน้มความขุ่นของสถานีที่เลือก ระดับน้ำแม่น้ำมูล "
+            "และอันดับความขุ่นรายอำเภอที่ไล่สีทุกอำเภอตามค่าเฉลี่ย แตะที่อำเภอเพื่อดูค่าได้ "
+            "กดปุ่มเดิมอีกครั้งเพื่อปิด"
         ),
         "tour_t_lang": "ภาษาไทยและอังกฤษ",
         "tour_b_lang": "สลับภาษาของทั้งหน้าระหว่างสองภาษา",
@@ -2354,7 +2364,13 @@ def tour_steps():
         # ring goes round the thing you are being told to tap.
         (".leaflet-container", True, "tap"),
         (".st-key-timeline_bar", False, "timeline"),
-        ('[data-testid="stSidebar"]', False, "panel"),
+        # The button, not the panel it opens: the panel starts folded away, so
+        # a step ringing it would have nothing to ring. Both testids are
+        # listed because which one exists depends on whether the panel is
+        # currently open - see the tour's rectFor, which takes the first
+        # visible match rather than the first match.
+        ('[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapseButton"]',
+         False, "panel"),
         (".st-key-lang_toggle", False, "lang"),
         (".wq-info-fab", True, "info"),
         ("[data-wq-tour]", True, "replay"),

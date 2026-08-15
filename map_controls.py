@@ -1067,8 +1067,20 @@ var elStep = ov.querySelector('.wqt-step'), elTitle = ov.querySelector('.wqt-tit
 var elBody = ov.querySelector('.wqt-body'), elDots = ov.querySelector('.wqt-dots');
 var btnBack = ov.querySelector('.wqt-back'), btnNext = ov.querySelector('.wqt-next');
 
+/* The first *visible* match, not simply the first. A step may list several
+   selectors because which element exists depends on the state of the page -
+   the panel button is one testid when the panel is folded away and another
+   when it is open, and the one that does not apply is still in the DOM,
+   hidden. Taking the first match blindly would hand back a 0x0 box and the
+   step would be dropped as unresolvable. */
 function elFor(step) {
-    return step.frame ? document.querySelector(step.sel) : pdoc.querySelector(step.sel);
+    var doc = step.frame ? document : pdoc;
+    var found = doc.querySelectorAll(step.sel);
+    for (var i = 0; i < found.length; i++) {
+        var r = found[i].getBoundingClientRect();
+        if (r.width && r.height) return found[i];
+    }
+    return found.length ? found[0] : null;
 }
 
 function rectFor(step) {
